@@ -34,45 +34,45 @@
   </style>
 </head>
 <body>
-  <h2>🐟 PageClaw</h2>
-  <p class="subtitle">Your intelligent browser assistant</p>
+  <h2>🐟 AI 浏览器助手</h2>
+  <p class="subtitle">说出你想做的事，AI 帮你执行</p>
 
   <div id="setupPrompt" class="setup-prompt" style="display:none">
     <div class="icon">🔑</div>
-    <p>Configure your API Key to get started</p>
-    <button class="stop-btn" id="openSetup">Open Settings</button>
+    <p>请先配置 API Key 才能使用</p>
+    <button class="stop-btn" id="openSetup">打开设置</button>
   </div>
 
   <div id="runningIndicator" class="running" style="display:none">
     <div class="spinner"></div>
-    <div style="font-size:13px">AI is working...</div>
-    <button class="stop-btn" id="stopTask">⏹️ Cancel</button>
+    <div style="font-size:13px">AI 正在执行...</div>
+    <button class="stop-btn" id="stopTask">⏹️ 取消</button>
   </div>
 
   <div id="usageHint" class="hint">
-    <div class="hint-title">💡 10 things you can do:</div>
-    <div class="hint-item" data-cmd="search for latest AI news on Google"><span class="emoji">🔍</span> Search Google for news</div>
-    <div class="hint-item" data-cmd="play a Python tutorial on YouTube"><span class="emoji">📺</span> Play a YouTube video</div>
-    <div class="hint-item" data-cmd="bilibili搜索机器学习播放第一个视频"><span class="emoji">🎬</span> Watch a Bilibili video</div>
-    <div class="hint-item" data-cmd="search Amazon for wireless headphones"><span class="emoji">🛒</span> Shop on Amazon</div>
-    <div class="hint-item" data-cmd="open Hacker News and show top stories"><span class="emoji">📰</span> Read top news (HN)</div>
-    <div class="hint-item" data-cmd="compare iPhone 16 prices on Google"><span class="emoji">💰</span> Compare prices</div>
-    <div class="hint-item" data-cmd="open GitHub"><span class="emoji">🌐</span> Open any website</div>
-    <div class="hint-item" data-cmd="scroll down"><span class="emoji">📜</span> Scroll the page</div>
-    <div class="hint-item" data-cmd="click the first search result"><span class="emoji">👆</span> Click a link/button</div>
-    <div class="hint-item" data-cmd="what does this page say"><span class="emoji">📖</span> Read page content</div>
+    <div class="hint-title">💡 你可以这样说：</div>
+    <div class="hint-item" data-cmd="在 Google 上搜索最新的 AI 新闻"><span class="emoji">🔍</span> 搜索 Google 新闻</div>
+    <div class="hint-item" data-cmd="在 YouTube 上播放一个 Python 教程"><span class="emoji">📺</span> 播放 YouTube 视频</div>
+    <div class="hint-item" data-cmd="bilibili搜索机器学习播放第一个视频"><span class="emoji">🎬</span> 看 Bilibili 视频</div>
+    <div class="hint-item" data-cmd="在 Amazon 上搜索无线耳机"><span class="emoji">🛒</span> Amazon 购物</div>
+    <div class="hint-item" data-cmd="打开 Hacker News 看看今天有什么热门"><span class="emoji">📰</span> 阅读 Hacker News</div>
+    <div class="hint-item" data-cmd="在 Google 上比价 iPhone 16"><span class="emoji">💰</span> 比价</div>
+    <div class="hint-item" data-cmd="打开 GitHub"><span class="emoji">🌐</span> 打开网站</div>
+    <div class="hint-item" data-cmd="往下滚"><span class="emoji">📜</span> 滚动页面</div>
+    <div class="hint-item" data-cmd="点击第一个搜索结果"><span class="emoji">👆</span> 点击链接/按钮</div>
+    <div class="hint-item" data-cmd="这个页面讲了什么"><span class="emoji">📖</span> 读取页面内容</div>
   </div>
 
   <div id="statusEl" class="status"></div>
 
   <div class="history" id="historySection" style="display:none">
-    <div class="history-title">Recent commands:</div>
+    <div class="history-title">最近的指令：</div>
     <div id="historyList"></div>
   </div>
 
   <div class="footer">
-    <a href="#" id="openOptions">⚙️ Settings</a>
-    <a href="#" id="clearHistory">🗑️ Clear History</a>
+    <a href="#" id="openOptions">⚙️ 设置</a>
+    <a href="#" id="clearHistory">🗑️ 清除历史</a>
   </div>
 
   <script src="popup.js"></script>

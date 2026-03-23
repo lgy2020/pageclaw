@@ -154,44 +154,303 @@
 
   window.__aiAgent = {
 
-    // ==================== 1. Page Snapshot ====================
-    snapshot() {
-      const elements = [];
-      let idx = 0;
+    // ==================== 1. DOM Extraction Engine ====================
+    // Inspired by PageAgent dom/dom_tree/index.js (1706 lines), simplified to ~350 lines
 
-      document.querySelectorAll(ALL_SELECTORS.join(',')).forEach(el => {
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
-        if (rect.bottom < -100 || rect.top > window.innerHeight * 4) return;
-        const computed = window.getComputedStyle(el);
-        if (computed.visibility === 'hidden' || computed.display === 'none') return;
+    _domCache: new WeakMap(),
+    _rectCache: new WeakMap(),
+    _styleCache: new WeakMap(),
+    _highlightEls: [],
+    _highlightContainer: null,
 
-        elements.push({
-          index: idx++,
-          tag: el.tagName.toLowerCase(),
-          text: (el.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 120),
-          type: el.type || '',
-          name: el.name || '',
-          placeholder: el.placeholder || '',
-          href: el.href || '',
-          ariaLabel: el.getAttribute('aria-label') || '',
-          title: el.title || '',
-          value: el.value || '',
-          rect: {
-            x: Math.round(rect.x),
-            y: Math.round(rect.y + window.scrollY),
-            w: Math.round(rect.width),
-            h: Math.round(rect.height)
+    // --- Cached DOM queries ---
+    _getCachedRect(el) {
+      if (this._rectCache.has(el)) return this._rectCache.get(el);
+      const rect = el.getBoundingClientRect();
+      this._rectCache.set(el, rect);
+      return rect;
+    },
+    _getCachedStyle(el) {
+      if (this._styleCache.has(el)) return this._styleCache.get(el);
+      const style = window.getComputedStyle(el);
+      this._styleCache.set(el, style);
+      return style;
+    },
+
+    // --- Element visibility ---
+    _isElementVisible(el) {
+      if (!el || el.nodeType !== 1) return false;
+      if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+      const style = this._getCachedStyle(el);
+      if (!style) return false;
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      return true;
+    },
+
+    // --- Interactivity scoring (0-10) ---
+    _scoreInteractive(el) {
+      let score = 0;
+      const tag = el.tagName.toLowerCase();
+
+      // Native interactive tags
+      if (/^(a|button|input|select|textarea)$/.test(tag)) score += 5;
+      if (/^(video|audio|iframe)$/.test(tag)) score += 3;
+
+      // Role-based
+      const role = el.getAttribute('role');
+      if (role === 'button' || role === 'link' || role === 'textbox' || role === 'searchbox') score += 4;
+      if (role === 'tab' || role === 'menuitem' || role === 'option') score += 3;
+
+      // Event handlers
+      if (el.onclick || el.getAttribute('onclick')) score += 4;
+      if (el.getAttribute('tabindex') && el.getAttribute('tabindex') !== '-1') score += 3;
+
+      // Cursor style
+      const style = this._getCachedStyle(el);
+      if (style && style.cursor === 'pointer') score += 2;
+
+      // Interactive attributes
+      if (el.href && tag === 'a') score += 3;
+      if (el.type && /submit|button|reset/.test(el.type)) score += 3;
+      if (el.contentEditable === 'true') score += 4;
+
+      // Has text or ARIA label
+      if ((el.textContent || '').trim().length > 0 && tag !== 'script') score += 1;
+      if (el.getAttribute('aria-label')) score += 1;
+
+      return score;
+    },
+
+    // --- Scrollable detection ---
+    _getScrollData(el) {
+      const style = this._getCachedStyle(el);
+      if (!style) return null;
+      const overflowX = style.overflowX;
+      const overflowY = style.overflowY;
+      const scrollableX = overflowX === 'auto' || overflowX === 'scroll';
+      const scrollableY = overflowY === 'auto' || overflowY === 'scroll';
+      if (!scrollableX && !scrollableY) return null;
+      const sw = el.scrollWidth - el.clientWidth;
+      const sh = el.scrollHeight - el.clientHeight;
+      if (sw < 4 && sh < 4) return null;
+      return {
+        top: el.scrollTop,
+        bottom: el.scrollHeight - el.clientHeight - el.scrollTop,
+        left: el.scrollLeft,
+        right: el.scrollWidth - el.clientWidth - el.scrollLeft,
+      };
+    },
+
+    // --- Element coordinates ---
+    _getCoords(el) {
+      const rect = this._getCachedRect(el);
+      return {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top + window.scrollY),
+        w: Math.round(rect.width),
+        h: Math.round(rect.height),
+        cx: Math.round(rect.left + rect.width / 2),
+        cy: Math.round(rect.top + rect.height / 2),
+        inViewport: rect.top >= 0 && rect.top < window.innerHeight,
+      };
+    },
+
+    // --- Essential attributes ---
+    _getAttrs(el) {
+      const attrs = {};
+      if (el.id) attrs.id = el.id;
+      if (typeof el.className === 'string' && el.className) attrs.class = el.className.substring(0, 60);
+      if (el.title) attrs.title = el.title;
+      if (el.href) attrs.href = el.href.substring(0, 100);
+      if (el.src) attrs.src = el.src.substring(0, 100);
+      if (el.type) attrs.type = el.type;
+      if (el.name) attrs.name = el.name;
+      if (el.value && el.tagName === 'INPUT') attrs.value = String(el.value).substring(0, 60);
+      if (el.placeholder) attrs.placeholder = el.placeholder;
+      const ariaLabel = el.getAttribute('aria-label');
+      if (ariaLabel) attrs.ariaLabel = ariaLabel;
+      const role = el.getAttribute('role');
+      if (role) attrs.role = role;
+      if (el.disabled) attrs.disabled = true;
+      if (el.checked) attrs.checked = true;
+      return attrs;
+    },
+
+    // --- Shadow DOM / iframe content extraction ---
+    _extractShadowContent(el) {
+      if (!el.shadowRoot) return null;
+      const items = [];
+      for (const child of el.shadowRoot.children) {
+        const extracted = this._extractElement(child, 0, 2);
+        if (extracted) items.push(extracted);
+      }
+      return items.length ? items : null;
+    },
+
+    // --- Single element extraction ---
+    _extractElement(el, depth, maxDepth) {
+      if (depth > maxDepth || !el) return null;
+      if (el.nodeType !== 1) return null;
+      // Skip hidden elements early
+      if (!this._isElementVisible(el)) return null;
+      // Skip script/style/noscript/meta
+      const tag = el.tagName.toLowerCase();
+      if (/^(script|style|noscript|meta|link|head)$/.test(tag)) return null;
+      // Skip our own overlays
+      if (el.hasAttribute('data-page-agent-ignore')) return null;
+      // Skip aria-hidden
+      if (el.getAttribute('aria-hidden') === 'true') return null;
+
+      const rect = this._getCachedRect(el);
+      if (rect.width < 2 || rect.height < 2) return null;
+
+      const score = this._scoreInteractive(el);
+      const scrollData = this._getScrollData(el);
+      const text = (el.childNodes.length === 1 && el.firstChild.nodeType === 3)
+        ? el.textContent.trim().substring(0, 120) : '';
+
+      const result = {
+        tag,
+        text,
+        attrs: score >= 2 ? this._getAttrs(el) : (el.id ? { id: el.id } : {}),
+        score,
+        scrollable: scrollData,
+        children: [],
+        _el: el,
+      };
+
+      // Handle iframe
+      if (tag === 'iframe') {
+        try {
+          const doc = el.contentDocument;
+          if (doc && doc.body) {
+            const iframeContent = this._extractElement(doc.body, depth + 1, maxDepth);
+            if (iframeContent) result.children.push(iframeContent);
+          } else {
+            result.text = '[跨域 iframe: ' + (el.src || '').substring(0, 60) + ']';
           }
-        });
+        } catch (e) {
+          result.text = '[iframe 不可访问]';
+        }
+        return result;
+      }
+
+      // Handle Shadow DOM
+      if (el.shadowRoot) {
+        const shadowItems = this._extractShadowContent(el);
+        if (shadowItems) result.children.push(...shadowItems);
+      }
+
+      // Recurse children
+      for (const child of el.children) {
+        const childResult = this._extractElement(child, depth + 1, maxDepth);
+        if (childResult) result.children.push(childResult);
+      }
+
+      return result;
+    },
+
+    // --- Flatten tree to interactive elements list ---
+    _flattenTree(node, result) {
+      if (!node) return;
+      // Keep elements with score >= 2 (meaningfully interactive)
+      if (node.score >= 2) {
+        result.push(node);
+      }
+      // Always recurse into children
+      if (node.children) {
+        for (const child of node.children) {
+          this._flattenTree(child, result);
+        }
+      }
+    },
+
+    // --- Highlight elements on page ---
+    _highlightElements(elements) {
+      this._clearHighlights();
+      // Create container
+      let container = document.getElementById('pc-dom-highlights');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'pc-dom-highlights';
+        container.setAttribute('data-page-agent-ignore', 'true');
+        container.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:0;z-index:2147483639;pointer-events:none;';
+        document.body.appendChild(container);
+      }
+      this._highlightContainer = container;
+
+      elements.forEach((item, i) => {
+        const el = item._el;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'pc-dom-hl';
+        overlay.style.cssText = `
+          position:fixed;left:${rect.left}px;top:${rect.top}px;
+          width:${rect.width}px;height:${rect.height}px;
+          border:2px solid rgba(0,255,136,0.7);background:rgba(0,255,136,0.06);
+          border-radius:4px;pointer-events:none;
+        `;
+        // Index label
+        const label = document.createElement('span');
+        label.textContent = i;
+        label.style.cssText = `
+          position:absolute;top:-16px;left:0;
+          background:#00ff88;color:#000;font-size:10px;font-weight:bold;
+          padding:1px 4px;border-radius:3px;line-height:14px;
+        `;
+        overlay.appendChild(label);
+        container.appendChild(overlay);
+        this._highlightEls.push(overlay);
       });
+    },
+
+    _clearHighlights() {
+      for (const el of this._highlightEls) el.remove();
+      this._highlightEls = [];
+    },
+
+    // --- Main snapshot: replaces old snapshot() ---
+    snapshot(maxDepth, doHighlight) {
+      maxDepth = maxDepth || 5;
+      doHighlight = doHighlight !== false;
+
+      // Clear caches
+      this._domCache = new WeakMap();
+      this._rectCache = new WeakMap();
+      this._styleCache = new WeakMap();
+
+      // Extract DOM tree
+      const tree = this._extractElement(document.body, 0, maxDepth);
+
+      // Flatten to interactive elements
+      const flat = [];
+      this._flattenTree(tree, flat);
+
+      // Build output (remove _el references)
+      const elements = flat.map((item, i) => {
+        const coords = this._getCoords(item._el);
+        return {
+          index: i,
+          tag: item.tag,
+          text: item.text,
+          attrs: item.attrs,
+          coords,
+          scrollable: !!item.scrollable,
+        };
+      });
+
+      // Highlight if requested
+      if (doHighlight) this._highlightElements(flat);
 
       return {
         url: window.location.href,
         title: document.title,
         site: detectSite(),
         elementCount: elements.length,
-        elements
+        elements,
       };
     },
 
@@ -705,6 +964,239 @@
     _isVideo(url, title) {
       return /youtube|bilibili|youku|iqiyi|vimeo|dailymotion|video/.test(url) ||
              /视频|video|发布会|直播|播放|movie|film/i.test(title);
+    },
+
+    // ==================== 16. Visual Animation System ====================
+
+    _animOverlay: null,
+    _animCursor: null,
+    _animStyle: null,
+
+    _isPageDark() {
+      try {
+        // Strategy 1: class detection
+        const darkClasses = ['dark', 'dark-mode', 'theme-dark', 'night', 'night-mode'];
+        for (const cls of darkClasses) {
+          if (document.documentElement.classList.contains(cls)) return true;
+          if (document.body && document.body.classList.contains(cls)) return true;
+        }
+        // Strategy 2: data-theme attribute
+        const theme = document.documentElement.getAttribute('data-theme');
+        if (theme && theme.toLowerCase().includes('dark')) return true;
+        // Strategy 3: background color luminance
+        const bg = getComputedStyle(document.body || document.documentElement).backgroundColor;
+        const rgb = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (rgb) {
+          const lum = 0.299 * parseInt(rgb[1]) + 0.587 * parseInt(rgb[2]) + 0.114 * parseInt(rgb[3]);
+          return lum < 128;
+        }
+      } catch (e) {}
+      return false;
+    },
+
+    _injectAnimCSS() {
+      if (this._animStyle) return;
+      const dark = this._isPageDark();
+      const colors = dark
+        ? ['#e94560', '#0f3460', '#16213e']
+        : ['#ff6b8a', '#4a7fdb', '#2d4a7a'];
+      const bg = dark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.4)';
+
+      this._animStyle = document.createElement('style');
+      this._animStyle.textContent = `
+        @keyframes pp-spin-a { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes pp-spin-b { from { transform: rotate(120deg); } to { transform: rotate(480deg); } }
+        @keyframes pp-spin-c { from { transform: rotate(240deg); } to { transform: rotate(600deg); } }
+        @keyframes pp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pp-fade-out { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes pp-cursor-click {
+          0% { transform: translate(-50%,-50%) scale(1); opacity: 0.8; }
+          50% { transform: translate(-50%,-50%) scale(2.5); opacity: 0; }
+          100% { transform: translate(-50%,-50%) scale(1); opacity: 0; }
+        }
+        @keyframes pp-ripple {
+          0% { width: 0; height: 0; opacity: 0.6; }
+          100% { width: 80px; height: 80px; opacity: 0; }
+        }
+
+        #pc-overlay {
+          position: fixed; inset: 0; z-index: 2147483640;
+          pointer-events: none;
+          animation: pp-fade-in 0.4s ease-out;
+        }
+        #pc-overlay.hiding { animation: pp-fade-out 0.3s ease-in forwards; }
+        #pc-overlay .pc-backdrop {
+          position: absolute; inset: 0;
+          background: ${bg};
+          backdrop-filter: blur(4px);
+        }
+        #pc-overlay .pc-glow {
+          position: absolute; inset: 0;
+          border-radius: 16px; margin: 20px;
+          overflow: hidden;
+        }
+        #pc-overlay .pc-glow .pc-layer {
+          position: absolute; inset: -40px;
+          border-radius: 16px;
+          filter: blur(60px);
+          opacity: 0.55;
+        }
+        #pc-overlay .pc-glow .pc-layer-a {
+          background: conic-gradient(from 0deg, ${colors[0]}, ${colors[1]}, ${colors[2]}, ${colors[0]});
+          animation: pp-spin-a 4s linear infinite;
+        }
+        #pc-overlay .pc-glow .pc-layer-b {
+          background: conic-gradient(from 120deg, ${colors[1]}, ${colors[2]}, ${colors[0]}, ${colors[1]});
+          animation: pp-spin-b 4s linear infinite;
+        }
+        #pc-overlay .pc-glow .pc-layer-c {
+          background: conic-gradient(from 240deg, ${colors[2]}, ${colors[0]}, ${colors[1]}, ${colors[2]});
+          animation: pp-spin-c 4s linear infinite;
+        }
+        #pc-overlay .pc-border {
+          position: absolute; inset: 20px;
+          border: 3px solid ${colors[0]};
+          border-radius: 16px;
+          opacity: 0.3;
+          box-shadow: 0 0 30px ${colors[0]}44, inset 0 0 30px ${colors[0]}22;
+        }
+
+        #pc-cursor {
+          position: fixed; z-index: 2147483641;
+          width: 20px; height: 20px;
+          pointer-events: none;
+          transition: left 0.3s ease, top 0.3s ease;
+        }
+        #pc-cursor .pc-cursor-dot {
+          position: absolute; inset: 0;
+          border-radius: 50%;
+          background: ${colors[0]};
+          box-shadow: 0 0 12px ${colors[0]}, 0 0 24px ${colors[0]}66;
+          opacity: 0.9;
+        }
+        #pc-cursor .pc-cursor-ring {
+          position: absolute; inset: -6px;
+          border-radius: 50%;
+          border: 2px solid ${colors[0]}88;
+          opacity: 0.5;
+        }
+        #pc-cursor.clicking .pc-cursor-dot {
+          animation: pp-cursor-click 0.35s ease-out;
+        }
+        #pc-cursor .pc-ripple {
+          position: absolute; left: 50%; top: 50%;
+          transform: translate(-50%, -50%);
+          border-radius: 50%;
+          border: 2px solid ${colors[0]};
+          animation: pp-ripple 0.6s ease-out forwards;
+        }
+      `;
+      document.head.appendChild(this._animStyle);
+    },
+
+    showOverlay() {
+      this._injectAnimCSS();
+      if (this._animOverlay) return;
+      const ov = document.createElement('div');
+      ov.id = 'pc-overlay';
+      ov.setAttribute('data-page-agent-ignore', 'true');
+      ov.innerHTML = `
+        <div class="pc-backdrop"></div>
+        <div class="pc-glow">
+          <div class="pc-layer pc-layer-a"></div>
+          <div class="pc-layer pc-layer-b"></div>
+          <div class="pc-layer pc-layer-c"></div>
+        </div>
+        <div class="pc-border"></div>
+      `;
+      document.body.appendChild(ov);
+      this._animOverlay = ov;
+
+      // Create cursor
+      if (!this._animCursor) {
+        const cur = document.createElement('div');
+        cur.id = 'pc-cursor';
+        cur.setAttribute('data-page-agent-ignore', 'true');
+        cur.innerHTML = '<div class="pc-cursor-dot"></div><div class="pc-cursor-ring"></div>';
+        cur.style.left = '-100px';
+        cur.style.top = '-100px';
+        document.body.appendChild(cur);
+        this._animCursor = cur;
+      }
+    },
+
+    hideOverlay() {
+      if (this._animOverlay) {
+        this._animOverlay.classList.add('hiding');
+        const ov = this._animOverlay;
+        setTimeout(() => { ov.remove(); }, 300);
+        this._animOverlay = null;
+      }
+      if (this._animCursor) {
+        this._animCursor.style.left = '-100px';
+      }
+    },
+
+    moveCursorTo(x, y) {
+      if (!this._animCursor) this.showOverlay();
+      this._animCursor.style.left = x + 'px';
+      this._animCursor.style.top = y + 'px';
+    },
+
+    moveCursorToElement(index) {
+      const el = this._getElement(index);
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      this.moveCursorTo(x, y);
+    },
+
+    cursorClick() {
+      if (!this._animCursor) return;
+      this._animCursor.classList.remove('clicking');
+      void this._animCursor.offsetHeight; // force reflow
+      this._animCursor.classList.add('clicking');
+      // Add ripple
+      const ripple = document.createElement('div');
+      ripple.className = 'pc-ripple';
+      this._animCursor.appendChild(ripple);
+      setTimeout(() => { ripple.remove(); }, 600);
+      setTimeout(() => { this._animCursor.classList.remove('clicking'); }, 350);
+    },
+
+    // --- State-aware glow colors ---
+    setGlowState(state) {
+      const palettes = {
+        thinking: ['#4a90d9', '#2d5aa0', '#1a3a6e'],   // 蓝色 — 思考中
+        executing: ['#e94560', '#0f3460', '#16213e'],   // 红色 — 执行中
+        success:   ['#4ade80', '#16a34a', '#0d6832'],   // 绿色 — 成功
+        error:     ['#ef4444', '#b91c1c', '#7f1d1d'],   // 暗红 — 错误
+      };
+      const colors = palettes[state] || palettes.executing;
+      if (!this._animOverlay) return;
+      const layers = this._animOverlay.querySelectorAll('.pc-layer');
+      layers.forEach((layer, i) => {
+        const offset = i * 120;
+        layer.style.background = `conic-gradient(from ${offset}deg, ${colors[0]}, ${colors[1]}, ${colors[2]}, ${colors[0]})`;
+      });
+      const border = this._animOverlay.querySelector('.pc-border');
+      if (border) border.style.borderColor = colors[0];
+      // Update cursor color
+      if (this._animCursor) {
+        const dot = this._animCursor.querySelector('.pc-cursor-dot');
+        if (dot) {
+          dot.style.background = colors[0];
+          dot.style.boxShadow = `0 0 12px ${colors[0]}, 0 0 24px ${colors[0]}66`;
+        }
+        const ring = this._animCursor.querySelector('.pc-cursor-ring');
+        if (ring) ring.style.borderColor = colors[0] + '88';
+      }
+    },
+
+    animClick(index) {
+      this.moveCursorToElement(index);
+      setTimeout(() => this.cursorClick(), 300);
     }
   };
 })();

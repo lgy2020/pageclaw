@@ -1,4 +1,4 @@
-// service-worker.js — PageClaw Core Engine
+// service-worker.js — AI Browser Agent Core Engine
 // ============================================================
 
 // State
@@ -37,7 +37,7 @@ chrome.omnibox.onInputEntered.addListener(async (text, disposition) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'TEST_CONNECTION') { testLLMConnection(msg.config).then(sendResponse); return true; }
-  if (msg.type === 'STOP_TASK') { if (currentTask) { currentTask.abort.abort(); agentShowToast(currentTask.tabId, '⏹️ Cancelled').catch(()=>{}); currentTask = null; } sendResponse({ok:true}); return true; }
+  if (msg.type === 'STOP_TASK') { if (currentTask) { currentTask.abort.abort(); agentShowToast(currentTask.tabId, '⏹️ 已取消').catch(()=>{}); currentTask = null; } sendResponse({ok:true}); return true; }
   if (msg.type === 'GET_STATUS') { sendResponse({running: !!currentTask}); return true; }
   if (msg.type === 'GET_HISTORY') { chrome.storage.local.get(['commandHistory']).then(d => sendResponse({history: d.commandHistory||[]})); return true; }
   if (msg.type === 'CLEAR_HISTORY') { chrome.storage.local.set({commandHistory:[]}).then(()=>sendResponse({ok:true})); return true; }
@@ -77,10 +77,17 @@ async function executeAITask(instruction, tabId) {
     let pageInfo = null;
     try { await injectPageAgent(tabId); pageInfo = await agentCall(tabId, 'getPageInfo'); } catch(e) {}
 
-    await agentShowToast(tabId, '🧠 Understanding...');
+    // Show conic-gradient glow overlay
+    try { await agentCall(tabId, 'showOverlay'); } catch(e) {}
+
+    await agentShowToast(tabId, '🧠 正在理解...');
     const plan = await llm.plan(instruction, pageInfo);
 
-    if (!plan?.length) { await agentShowToast(tabId, '❌ Could not understand. Try rephrasing.'); return; }
+    if (!plan?.length) {
+      await agentShowToast(tabId, '❌ 无法理解，请换种说法试试');
+      try { await agentCall(tabId, 'hideOverlay'); } catch(e) {}
+      return;
+    }
 
     const validTypes = ['navigate','type','click','pressKey','wait','analyze','play_video','scroll','scrollTo','scrollMultiple','fillForm','getText','getPrices'];
     const validPlan = plan.filter(s => s?.type && validTypes.includes(s.type));
@@ -93,10 +100,10 @@ async function executeAITask(instruction, tabId) {
       );
     }
 
-    await agentShowToast(tabId, `📋 Plan: ${validPlan.length} steps`);
+    await agentShowToast(tabId, `📋 共 ${validPlan.length} 步`);
 
     for (let i = 0; i < validPlan.length; i++) {
-      if (abort.signal.aborted) { await agentShowToast(tabId, '⏹️ Cancelled'); return; }
+      if (abort.signal.aborted) { await agentShowToast(tabId, '⏹️ 已取消'); return; }
       const step = validPlan[i];
       await agentShowToast(tabId, `🔄 [${i+1}/${validPlan.length}] ${step.description}`);
       await injectPageAgent(tabId);
@@ -105,11 +112,15 @@ async function executeAITask(instruction, tabId) {
       await sleep(1000);
     }
 
-    await agentShowToast(tabId, '🎉 Done!');
+    await agentShowToast(tabId, '🎉 完成！');
   } catch (err) {
-    if (err.name === 'AbortError' || abort.signal.aborted) await agentShowToast(tabId, '⏹️ Cancelled');
+    if (err.name === 'AbortError' || abort.signal.aborted) await agentShowToast(tabId, '⏹️ 已取消');
     else { console.error('AI Agent error:', err); await agentShowToast(tabId, `❌ ${err.message}`); }
-  } finally { currentTask = null; }
+  } finally {
+    // Hide glow overlay
+    try { await agentCall(currentTask?.tabId || tabId, 'hideOverlay'); } catch(e) {}
+    currentTask = null;
+  }
 }
 
 // ============================================================
@@ -162,7 +173,11 @@ async function executeStep(step, tabId, llm) {
 
       if (step.target && /search button|搜索按钮|submit/i.test(step.target)) {
         idx = await agentCall(tabId, 'findSearchButton');
-        if (idx >= 0) clickAction = () => agentCall(tabId, 'click', idx);
+        if (idx >= 0) {
+          try { await agentCall(tabId, 'animClick', idx); } catch(e) {}
+          await sleep(400);
+          clickAction = () => agentCall(tabId, 'click', idx);
+        }
       }
 
       // Bilibili first video
@@ -451,15 +466,15 @@ async function agentShowToast(tabId, text) {
           document.head.appendChild(s);
         }
         const st = document.getElementById('ai-agent-status'), se = document.getElementById('ai-agent-steps'), sp = document.getElementById('ai-agent-spinner'), ic = document.getElementById('ai-agent-icon');
-        if (msg.includes('🎉')) { ic.textContent='🎉'; st.textContent='Task completed!'; sp.style.display='none'; document.getElementById('ai-agent-card').style.borderColor='rgba(74,222,128,.5)'; return; }
+        if (msg.includes('🎉')) { ic.textContent='🎉'; st.textContent='完成！'; sp.style.display='none'; document.getElementById('ai-agent-card').style.borderColor='rgba(74,222,128,.5)'; return; }
         if (msg.includes('❌')) { ic.textContent='⚠️'; st.textContent=msg.replace('❌','').trim(); sp.style.display='none'; document.getElementById('ai-agent-card').style.borderColor='rgba(239,68,68,.5)'; return; }
-        if (msg.includes('⏹️')) { ic.textContent='⏹️'; st.textContent='Cancelled'; sp.style.display='none'; return; }
+        if (msg.includes('⏹️')) { ic.textContent='⏹️'; st.textContent='已取消'; sp.style.display='none'; return; }
         const m = msg.match(/🔄\s*\[(\d+)\/(\d+)\]\s*(.+)/);
         if (m) {
           const cur=+m[1], tot=+m[2], desc=m[3];
           if (!se.children.length || se.dataset.total!==String(tot)) { se.innerHTML=''; se.dataset.total=tot; for(let i=1;i<=tot;i++){const d=document.createElement('div');d.className='step';d.dataset.step=i;d.innerHTML='<span class="step-dot"></span><span class="step-text">Waiting...</span>';se.appendChild(d);} }
           for(let i=1;i<=tot;i++){const d=se.querySelector('[data-step="'+i+'"]');if(i<cur){d.className='step done';d.querySelector('.step-text').textContent=d.dataset.desc||'Step '+i;}else if(i===cur){d.className='step active';d.querySelector('.step-text').textContent=desc;d.dataset.desc=desc;}}
-          st.textContent='Step '+cur+'/'+tot; return;
+          st.textContent='步骤 '+cur+'/'+tot; return;
         }
         st.textContent = msg;
       }
