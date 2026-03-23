@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PageClaw Settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 560px;
+      margin: 40px auto;
+      padding: 0 24px;
+      background: #0f0f23;
+      color: #eee;
+    }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    .subtitle { font-size: 13px; color: #888; margin-bottom: 32px; }
+
+    label { display: block; margin-bottom: 6px; font-size: 14px; color: #aaa; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #1a1a2e;
+      color: #eee;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    input:focus { outline: none; border-color: #e94560; }
+    .hint { font-size: 12px; color: #666; margin-bottom: 20px; }
+
+    .presets {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .preset-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1a1a2e;
+      color: #aaa;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .preset-btn:hover { border-color: #e94560; color: #e94560; }
+    .preset-btn.active { border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.1); }
+
+    .divider { border: 0; border-top: 1px solid #222; margin: 24px 0; }
+
+    .btn-row { display: flex; gap: 12px; margin-top: 16px; }
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #save { background: #e94560; color: white; }
+    #save:hover { background: #c73e54; }
+    #test { background: #16213e; color: #e94560; border: 1px solid #e94560; }
+    #test:hover { background: #1a1a2e; }
+
+    .status { margin-top: 16px; padding: 10px; border-radius: 6px; font-size: 13px; display: none; }
+    .status.show { display: block; }
+    .status.ok { background: #0a3d0a; color: #4caf50; }
+    .status.err { background: #3d0a0a; color: #f44336; }
+
+    .info-box {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 24px;
+    }
+    .info-box h3 { font-size: 14px; color: #e94560; margin-bottom: 8px; }
+    .info-box p { font-size: 12px; color: #888; line-height: 1.6; }
+    .info-box a { color: #e94560; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>🐟 PageClaw</h1>
+  <p class="subtitle">Configure your AI provider to get started</p>
+
+  <label for="apiKey">API Key</label>
+  <input type="password" id="apiKey" placeholder="sk-or-v1-xxxxxxxx" />
+  <p class="hint">Your API key from OpenRouter, OpenAI, or compatible provider</p>
+
+  <label>Quick Setup</label>
+  <div class="presets">
+    <button class="preset-btn" data-provider="openrouter" data-base="https://openrouter.ai/api/v1" data-model="google/gemini-2.0-flash">OpenRouter (Gemini Flash)</button>
+    <button class="preset-btn" data-provider="openrouter-mimo" data-base="https://openrouter.ai/api/v1" data-model="xiaomi/mimo-v2-pro">OpenRouter (MiMo)</button>
+    <button class="preset-btn" data-provider="openai" data-base="https://api.openai.com/v1" data-model="gpt-4o-mini">OpenAI (GPT-4o Mini)</button>
+    <button class="preset-btn" data-provider="deepseek" data-base="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek</button>
+    <button class="preset-btn" data-provider="ollama" data-base="http://localhost:11434/v1" data-model="llama3">Ollama (Local)</button>
+  </div>
+
+  <label for="model">Model</label>
+  <input type="text" id="model" placeholder="google/gemini-2.0-flash" />
+  <p class="hint">Model ID (OpenRouter format: provider/model)</p>
+
+  <label for="baseUrl">API Endpoint</label>
+  <input type="text" id="baseUrl" placeholder="https://openrouter.ai/api/v1" />
+  <p class="hint">API base URL (default: OpenRouter)</p>
+
+  <hr class="divider" />
+
+  <div class="btn-row">
+    <button id="save">💾 Save</button>
+    <button id="test">🔍 Test Connection</button>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <div class="info-box">
+    <h3>🚀 How to use</h3>
+    <p>
+      1. Get an API key from <a href="https://openrouter.ai" target="_blank">OpenRouter</a> (recommended, supports many models)<br/>
+      2. Paste your key above and click Save<br/>
+      3. In the address bar, type <strong>@ai</strong> then space, then your instruction<br/>
+      4. Press Enter and watch the AI work!
+    </p>
+  </div>
+
+  <div class="info-box" style="margin-top: 12px;">
+    <h3>🔐 Privacy</h3>
+    <p>
+      Your API key is stored locally in Chrome's storage and never shared.
+      Page content is sent to your chosen AI provider for processing only.
+      No data is collected by this extension.
+    </p>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
