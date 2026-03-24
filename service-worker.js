@@ -114,7 +114,7 @@ async function executeAITask(instruction, tabId) {
         await injectPageAgent(tabId);
         await agentCall(tabId, "highlightElements");
       }
-      await sleep(1000);
+      await sleep(300);
     }
 
     await agentShowToast(tabId, '🎉 完成！');
@@ -136,17 +136,16 @@ async function executeStep(step, tabId, llm) {
   switch (step.type) {
     case 'navigate':
       await chrome.tabs.update(tabId, { url: step.url });
-      await waitForLoad(tabId);
+      await waitForDOMReady(tabId, 8000);
       await injectPageAgent(tabId);
       await agentCall(tabId, 'dismissPopups');
-      if (/bilibili/.test(step.url)) await waitForSelector(tabId, '.nav-search-input', 8000);
-      else if (/youtube/.test(step.url)) await waitForSelector(tabId, 'input#search', 8000);
-      await sleep(1000);
+      if (/bilibili/.test(step.url)) await waitForElement(tabId, '.nav-search-input', 8000);
+      else if (/youtube/.test(step.url)) await waitForElement(tabId, 'input#search', 8000);
       break;
 
     case 'type': {
       await agentCall(tabId, 'dismissPopups');
-      await sleep(500);
+      await sleep(200);
       if (step.target && /search|搜索|search box/i.test(step.target)) {
         await agentCall(tabId, 'typeInSearchBox', '');
         await sleep(300);
@@ -155,13 +154,11 @@ async function executeStep(step, tabId, llm) {
         const newTabId = await detectNewTab(tabId, async () => { await agentCall(tabId, 'clickSearchButton'); });
         if (newTabId !== null) {
           await injectPageAgent(newTabId);
-          await sleep(500);
+          await waitForDOMReady(newTabId, 8000);
           return { newTabId };
         }
-        await waitForLoad(tabId, 10000);
-        await sleep(1000);
+        await waitForDOMReady(tabId, 8000);
         await injectPageAgent(tabId);
-        await sleep(500);
         break;
       }
       const snapshot = await agentCall(tabId, 'snapshot');
@@ -173,7 +170,7 @@ async function executeStep(step, tabId, llm) {
 
     case 'click': {
       await agentCall(tabId, 'dismissPopups');
-      await sleep(500);
+      await sleep(200);
       let idx = -1, clickAction = null;
 
       if (step.target && /search button|搜索按钮|submit/i.test(step.target)) {
@@ -190,15 +187,15 @@ async function executeStep(step, tabId, llm) {
         const r = await agentCall(tabId, 'clickFirstBiliVideo');
         if (r?.success && r.url && /\/video\/BV[a-zA-Z0-9]{10}/.test(r.url)) {
           const nt = await detectNewTab(tabId, async () => { await chrome.tabs.update(tabId, { url: r.url }); });
-          if (nt !== null) { await injectPageAgent(nt); await sleep(2000); return { newTabId: nt }; }
-          await waitForLoad(tabId); await injectPageAgent(tabId); await sleep(2000); break;
+          if (nt !== null) { await injectPageAgent(nt); await waitForDOMReady(nt, 8000); return { newTabId: nt }; }
+          await waitForDOMReady(tabId, 8000); await injectPageAgent(tabId); break;
         }
         // YouTube fallback
         const yt = await agentCall(tabId, 'clickFirstYouTubeVideo');
         if (yt?.success && yt.url) {
           const nt = await detectNewTab(tabId, async () => { await chrome.tabs.update(tabId, { url: yt.url }); });
-          if (nt !== null) { await injectPageAgent(nt); await sleep(2000); return { newTabId: nt }; }
-          await waitForLoad(tabId); await injectPageAgent(tabId); await sleep(2000); break;
+          if (nt !== null) { await injectPageAgent(nt); await waitForDOMReady(nt, 8000); return { newTabId: nt }; }
+          await waitForDOMReady(tabId, 8000); await injectPageAgent(tabId); break;
         }
       }
 
@@ -216,7 +213,7 @@ async function executeStep(step, tabId, llm) {
 
       if (clickAction) {
         const nt = await detectNewTab(tabId, clickAction);
-        if (nt !== null) { await injectPageAgent(nt); await sleep(1000); return { newTabId: nt }; }
+        if (nt !== null) { await injectPageAgent(nt); await waitForDOMReady(nt, 8000); return { newTabId: nt }; }
       }
       break;
     }
@@ -506,16 +503,38 @@ async function waitForSelector(tabId, selector, timeout) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+async function waitForDOMReady(tabId, timeout) {
+  timeout = timeout || 8000;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const state = await agentCall(tabId, "getReadyState");
+    if (state === "interactive" || state === "complete") return true;
+    await sleep(200);
+  }
+  return false;
+}
+
+async function waitForElement(tabId, selector, timeout) {
+  timeout = timeout || 8000;
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const exists = await agentCall(tabId, "_hasElement", selector);
+    if (exists) return true;
+    await sleep(300);
+  }
+  return false;
+}
+
 async function detectNewTab(originalTabId, actionFn) {
   const before = new Set((await chrome.tabs.query({})).map(t => t.id));
   await actionFn();
-  await sleep(2500);
-  const newTabs = (await chrome.tabs.query({})).filter(t => !before.has(t.id));
-  if (newTabs.length > 0) {
-    console.log(`New tab: id=${newTabs[0].id} url=${newTabs[0].url}`);
-    await waitForLoad(newTabs[0].id, 15000);
-    await sleep(1000);
-    return newTabs[0].id;
+  for (let i = 0; i < 10; i++) {
+    await sleep(300);
+    const newTabs = (await chrome.tabs.query({})).filter(t => !before.has(t.id));
+    if (newTabs.length > 0) {
+      console.log(`New tab: id=${newTabs[0].id} url=${newTabs[0].url}`);
+      return newTabs[0].id;
+    }
   }
   return null;
 }

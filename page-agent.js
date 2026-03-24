@@ -956,6 +956,7 @@
 
     _hasElement(selector) { return !!document.querySelector(selector); },
     _getUrl() { return window.location.href; },
+    getReadyState() { return document.readyState; },
     _isVideo(url, title) {
       return /youtube|bilibili|youku|iqiyi|vimeo|dailymotion|video/.test(url) ||
              /视频|video|发布会|直播|播放|movie|film/i.test(title);
