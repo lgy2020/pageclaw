@@ -105,10 +105,15 @@ async function executeAITask(instruction, tabId) {
     for (let i = 0; i < validPlan.length; i++) {
       if (abort.signal.aborted) { await agentShowToast(tabId, '⏹️ 已取消'); return; }
       const step = validPlan[i];
-      await agentShowToast(tabId, `🔄 [${i+1}/${validPlan.length}] ${step.description}`);
       await injectPageAgent(tabId);
+      await agentShowToast(tabId, `🔄 [${i+1}/${validPlan.length}] ${step.description}`);
       const result = await executeStep(step, tabId, llm);
-      if (result?.newTabId) { tabId = result.newTabId; await injectPageAgent(tabId); }
+      await agentCall(tabId, "highlightElements");
+      if (result?.newTabId) {
+        tabId = result.newTabId;
+        await injectPageAgent(tabId);
+        await agentCall(tabId, "highlightElements");
+      }
       await sleep(1000);
     }
 
@@ -452,36 +457,32 @@ async function agentCall(tabId, method, ...args) {
 
 async function agentShowToast(tabId, text) {
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId }, args: [text],
-      func: (msg) => {
-        let c = document.getElementById('ai-agent-overlay');
-        if (!c) {
-          c = document.createElement('div'); c.id = 'ai-agent-overlay';
-          c.innerHTML = '<div id="ai-agent-backdrop"></div><div id="ai-agent-card"><div id="ai-agent-icon">🤖</div><div id="ai-agent-title">AI Agent</div><div id="ai-agent-status"></div><div id="ai-agent-steps"></div><div id="ai-agent-spinner"></div></div>';
-          document.body.appendChild(c);
-          document.getElementById('ai-agent-backdrop').addEventListener('click', () => c.style.display = 'none');
-          const s = document.createElement('style');
-          s.textContent = '#ai-agent-overlay{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;font-family:Segoe UI,-apple-system,sans-serif;animation:aiF .3s}@keyframes aiF{from{opacity:0}to{opacity:1}}#ai-agent-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);cursor:pointer}#ai-agent-card{position:relative;background:linear-gradient(145deg,#1a1a2e,#16213e,#0f3460);border:1px solid rgba(233,69,96,.3);border-radius:24px;padding:48px 56px;min-width:420px;max-width:560px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.6),0 0 60px rgba(233,69,96,.15);animation:aiC .4s cubic-bezier(.34,1.56,.64,1)}@keyframes aiC{from{transform:scale(.8) translateY(20px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}#ai-agent-icon{font-size:48px;margin-bottom:12px;animation:aiP 2s ease-in-out infinite}@keyframes aiP{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}#ai-agent-title{font-size:22px;font-weight:700;color:#e94560;margin-bottom:16px;letter-spacing:1px}#ai-agent-status{font-size:16px;color:#eee;line-height:1.6;margin-bottom:20px;min-height:24px}#ai-agent-steps{text-align:left;max-height:180px;overflow-y:auto;margin-bottom:16px}#ai-agent-steps .step{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px;color:#aaa;transition:all .3s}#ai-agent-steps .step.active{color:#e94560;font-weight:600}#ai-agent-steps .step.done{color:#4ade80}#ai-agent-steps .step-dot{width:8px;height:8px;border-radius:50%;background:#555;flex-shrink:0}#ai-agent-steps .step.active .step-dot{background:#e94560;box-shadow:0 0 8px #e94560;animation:aiD 1s infinite}#ai-agent-steps .step.done .step-dot{background:#4ade80}@keyframes aiD{0%,100%{box-shadow:0 0 4px #e94560}50%{box-shadow:0 0 12px #e94560}}#ai-agent-spinner{width:32px;height:32px;margin:0 auto;border:3px solid rgba(233,69,96,.2);border-top-color:#e94560;border-radius:50%;animation:aiS .8s linear infinite}@keyframes aiS{to{transform:rotate(360deg)}}';
-          document.head.appendChild(s);
-        }
-        const st = document.getElementById('ai-agent-status'), se = document.getElementById('ai-agent-steps'), sp = document.getElementById('ai-agent-spinner'), ic = document.getElementById('ai-agent-icon');
-        if (msg.includes('🎉')) { ic.textContent='🎉'; st.textContent='完成！'; sp.style.display='none'; document.getElementById('ai-agent-card').style.borderColor='rgba(74,222,128,.5)'; return; }
-        if (msg.includes('❌')) { ic.textContent='⚠️'; st.textContent=msg.replace('❌','').trim(); sp.style.display='none'; document.getElementById('ai-agent-card').style.borderColor='rgba(239,68,68,.5)'; return; }
-        if (msg.includes('⏹️')) { ic.textContent='⏹️'; st.textContent='已取消'; sp.style.display='none'; return; }
-        const m = msg.match(/🔄\s*\[(\d+)\/(\d+)\]\s*(.+)/);
-        if (m) {
-          const cur=+m[1], tot=+m[2], desc=m[3];
-          if (!se.children.length || se.dataset.total!==String(tot)) { se.innerHTML=''; se.dataset.total=tot; for(let i=1;i<=tot;i++){const d=document.createElement('div');d.className='step';d.dataset.step=i;d.innerHTML='<span class="step-dot"></span><span class="step-text">Waiting...</span>';se.appendChild(d);} }
-          for(let i=1;i<=tot;i++){const d=se.querySelector('[data-step="'+i+'"]');if(i<cur){d.className='step done';d.querySelector('.step-text').textContent=d.dataset.desc||'Step '+i;}else if(i===cur){d.className='step active';d.querySelector('.step-text').textContent=desc;d.dataset.desc=desc;}}
-          st.textContent='步骤 '+cur+'/'+tot; return;
-        }
-        st.textContent = msg;
-      }
-    });
+    let state = 'executing';
+    if (text.includes('\u{1F9E0}')) state = 'thinking';
+    if (text.includes('\u2728') || text.includes('\u{1F389}')) state = 'success';
+    if (text.includes('\u274C') || text.includes('\u23F9')) state = 'error';
+
+    let desc = text, cur = 0, tot = 0;
+    const m = text.match(/\u{1F504}\s*\[(\d+)\/(\d+)\]\s*(.+)/u);
+    if (m) { cur = +m[1]; tot = +m[2]; desc = m[3]; }
+    else if (text.includes('\u{1F389}')) { desc = 'Done!'; }
+    else if (text.includes('\u274C')) { desc = text.replace(/\u274C\s*/, '').trim(); }
+    else if (text.includes('\u23F9')) { desc = 'Cancelled'; }
+    else if (text.includes('\u{1F4CB}')) {
+      const pm = text.match(/(\d+)/);
+      if (pm) { tot = +pm[1]; desc = text; }
+    }
+
+    await agentCall(tabId, 'updateStatus', desc, cur, tot);
+    await agentCall(tabId, 'setGlowState', state);
+
+    if (state === 'success' || state === 'error') {
+      setTimeout(async () => {
+        try { await agentCall(tabId, 'hideOverlay'); } catch(e) {}
+      }, state === 'success' ? 2000 : 4000);
+    }
   } catch(e) {}
 }
-
 async function waitForLoad(tabId, timeout) {
   timeout = timeout || 15000;
   return new Promise(resolve => {
