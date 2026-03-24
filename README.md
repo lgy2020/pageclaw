@@ -1,76 +1,95 @@
 # PageClaw
 
-AI-powered browser automation Chrome extension.
+AI-powered browser automation for Chrome. Type `@ai` in the address bar and tell the AI what to do.
 
-Type `@ai` in the address bar and tell the AI what to do with natural language.
+## What It Does
 
-## Features
+PageClaw lets you control any web page with natural language:
 
-- **Omnibox Integration**: Type `@ai` + your command in the address bar
-- **Smart Search**: Google, Bing, Baidu, YouTube, Bilibili, Amazon
-- **Video Playback**: Auto-play first result on YouTube/Bilibili
-- **Price Extraction**: Amazon price detection
-- **News Reading**: Hacker News top stories
-- **Form Filling**: Fill forms by describing what you want
-- **Page Reading**: Extract page text content
-- **Multi-scroll**: Continuous scrolling for lazy-load content
-- **Popup Dismiss**: Auto-close 30+ types of popups
+- **"Search Google for best laptops 2026"** — types the query, clicks search, reads results
+- **"Click the first YouTube video"** — navigates, finds, and plays the video
+- **"Add iPhone 16 to cart on Amazon"** — interacts with e-commerce sites
+- **"Read the top 5 Hacker News stories"** — extracts content from news sites
 
-## Supported LLMs
-
-Any OpenAI-compatible API:
-- OpenRouter (default)
-- OpenAI
-- DeepSeek
-- Ollama (local)
-
-## Installation
-
-1. Download or clone this repository
-2. Open Chrome → `chrome://extensions/`
-3. Enable "Developer mode"
-4. Click "Load unpacked" → select this folder
-5. Click the extension icon → Settings → configure your API Key
-
-## Usage
-
-1. Click the address bar
-2. Type `@ai` + space
-3. Type your command, e.g.:
-   - `@ai search for today's AI news`
-   - `@ai play a Python tutorial on YouTube`
-   - `@ai search bilibili for machine learning`
-   - `@ai open Hacker News`
-   - `@ai search for wireless earbuds on Amazon`
-4. Press Enter
+The AI sees the page like you do, plans steps, and executes them with visual feedback (animated cursor, element highlights, progress overlay).
 
 ## Architecture
 
 ```
-service-worker.js    — Background: LLM call + step execution + Debugger API
-page-agent.js        — Content Script injection: DOM snapshot + element interaction
-popup.html/js        — Extension popup: settings guide + command history
-options.html/js      — Settings page: API Key / Model / Base URL configuration
-manifest.json        — MV3 manifest
+worker/          Chrome extension service worker
+├── background.js        Entry point, omnibox & context menu
+├── tab-manager.js       Tab lifecycle, module injection, agentCall
+└── debugger-input.js    Chrome Debugger API for text input
+
+core/            Task engine
+├── engine.js            Task orchestrator (plan → execute loop)
+└── executor.js          Step execution (click/type/scroll/wait/analyze)
+
+llm/             LLM integration
+└── client.js            LLM client, MacroTool planning, model patches
+
+page/            Page-side modules (injected into target pages)
+├── constants.js         Selectors, site detection, getVisibleElements
+├── dom-engine.js        DOM tree extraction & flattening
+├── element-ops.js       Click, type, scroll, form filling
+├── page-info.js         Page info, search results, price parsing
+├── animation.js         Visual effects (cursor, highlights, overlay)
+└── agent.js             Entry point, wires modules to window.__aiAgent
+
+utils/
+└── sleep.js             Async sleep helper
 ```
 
-## Permissions
+## Supported Sites
 
-| Permission | Purpose |
-|-----------|---------|
-| activeTab | Access current tab for automation |
-| scripting | Inject page-agent.js into pages |
-| storage | Save API Key and settings locally |
-| omnibox | @ai address bar integration |
-| debugger | Keyboard input for framework-controlled inputs (Vue/React) |
+| Site | Capabilities |
+|------|-------------|
+| Google | Search, navigate results, read snippets |
+| YouTube | Search, click videos, play/pause |
+| Bilibili | Search, play videos, read comments |
+| Amazon / JD / Taobao | Search, product details, add to cart |
+| Hacker News | Read top stories, navigate links |
+| GitHub | Search repos, navigate code |
+| Wikipedia | Search, read articles |
+| Google Translate | Translate text |
+| Generic sites | Click, type, scroll, read content |
 
-## Privacy
+## Setup
 
-- API Key stored locally in chrome.storage.local
-- Page content only read when you trigger a command
-- No data sent to any server except your configured LLM API
-- No browsing history stored
+1. Clone the repository
+2. Open `chrome://extensions/` in Chrome
+3. Enable **Developer mode**
+4. Click **Load unpacked** → select the project folder
+5. Click the extension icon → **Options** → enter your API key (OpenRouter or any OpenAI-compatible endpoint)
+6. Type `@ai` in the address bar, then describe what you want
+
+## How It Works
+
+```
+User types "@ai search for cats on YouTube"
+    ↓
+Omnibox captures input → LLM plans steps
+    ↓
+Step 1: navigate to youtube.com          [executor]
+Step 2: type "cats" in search box        [executor → agentCall → element-ops]
+Step 3: click search button              [executor → agentCall → element-ops]
+Step 4: click first video result         [executor → agentCall → page-info]
+Step 5: analyze what's playing           [executor → agentCall → dom-engine]
+    ↓
+Each step: inject page modules → execute → return result → LLM decides next
+Visual feedback: animated cursor, element labels, progress overlay
+```
+
+## Configuration
+
+- **API Key**: Any OpenAI-compatible provider (OpenRouter, DeepSeek, Google Gemini, etc.)
+- **Model**: Default `google/gemini-2.0-flash`, configurable in options
+- **Base URL**: Default `https://openrouter.ai/api/v1`
 
 ## License
 
 MIT
+
+## Credits
+
+Inspired by [PageAgent](https://github.com/nicekate/PageAgent) — the original vision of LLM-powered browser agents.
