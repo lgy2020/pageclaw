@@ -4,6 +4,14 @@ import { executeStep } from './executor.js';
 
 let currentTask = null;
 
+// Plan cache: site + instruction → plan array (LRU, max 50)
+const planCache = new Map();
+const PLAN_CACHE_MAX = 50;
+
+function getPlanCacheKey(pageInfo, instruction) {
+  return `${pageInfo?.site || '_'}|||${instruction.toLowerCase().trim()}`;
+}
+
 export function getCurrentTask() {
   return currentTask;
 }
@@ -31,8 +39,26 @@ export async function executeAITask(instruction, tabId, llm) {
     // Show animation overlay
     try { await agentCall(tabId, 'showOverlay'); } catch (e) {}
 
-    await agentShowToast(tabId, '\u{1F9E0} \u6B63\u5728\u7406\u89E3...');
-    const plan = await llm.plan(instruction, pageInfo);
+    // Try plan cache first
+    const cacheKey = getPlanCacheKey(pageInfo, instruction);
+    let plan = planCache.get(cacheKey);
+
+    if (plan) {
+      // LRU: re-insert to move to end
+      planCache.delete(cacheKey);
+      planCache.set(cacheKey, plan);
+    } else {
+      await agentShowToast(tabId, '\u{1F9E0} \u6B63\u5728\u7406\u89E3...');
+      plan = await llm.plan(instruction, pageInfo);
+
+      if (plan?.length) {
+        // Evict oldest if at capacity
+        if (planCache.size >= PLAN_CACHE_MAX) {
+          planCache.delete(planCache.keys().next().value);
+        }
+        planCache.set(cacheKey, plan);
+      }
+    }
 
     if (!plan?.length) {
       await agentShowToast(tabId, '\u274C \u65E0\u6CD5\u7406\u89E3\uFF0C\u8BF7\u6362\u79CD\u8BF4\u6CD5\u8BD5\u8BD5');
