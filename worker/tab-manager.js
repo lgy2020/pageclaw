@@ -66,12 +66,7 @@ export async function getActiveTab() {
 }
 
 const PAGE_MODULES = [
-  'page/constants.js',
-  'page/dom-engine.js',
-  'page/element-ops.js',
-  'page/page-info.js',
-  'page/animation.js',
-  'page/agent.js',
+  'page-bundle.js',
 ];
 
 // Clear injection cache on main-frame navigation
