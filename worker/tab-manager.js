@@ -1,5 +1,21 @@
 import { sleep } from '../utils/sleep.js';
 
+// Injection cache: tracks which tabs have page modules injected
+const injectedSites = new Map(); // tabId -> true
+
+// In-flight injection promises: prevents duplicate concurrent injection
+const inflight = new Map(); // tabId -> Promise
+
+// Remove tab from cache (forces re-injection on next call)
+function invalidate(tabId) {
+  injectedSites.delete(String(tabId));
+  inflight.delete(String(tabId));
+}
+
+export function resetInjection(tabId) {
+  invalidate(tabId);
+}
+
 export async function waitForDOMReady(tabId, timeout = 8000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -58,22 +74,54 @@ const PAGE_MODULES = [
   'page/agent.js',
 ];
 
-export async function injectPageAgent(tabId) {
-  try {
-    // Check if already injected on this tab
-    const [check] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => !!window.__aiAgent,
-    });
-    if (check?.result) return;
-
-    // Inject all page modules in order (var allows safe re-injection)
-    for (const file of PAGE_MODULES) {
-      await chrome.scripting.executeScript({ target: { tabId }, files: [file] });
-    }
-  } catch (e) {
-    console.error('injectPageAgent failed:', e);
+// Clear injection cache on main-frame navigation
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) {
+    invalidate(tabId);
   }
+});
+
+export async function injectPageAgent(tabId) {
+  const key = String(tabId);
+
+  // Fast path: already cached
+  if (injectedSites.has(key)) {
+    return;
+  }
+
+  // Concurrency guard: reuse in-flight injection
+  if (inflight.has(key)) {
+    return inflight.get(key);
+  }
+
+  const promise = (async () => {
+    try {
+      // Liveness check: maybe a previous injection is still alive
+      try {
+        const [check] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => !!window.__aiAgent,
+        });
+        if (check?.result) {
+          injectedSites.set(key, true);
+          return;
+        }
+      } catch {
+        // Tab loading or restricted page — fall through to inject
+      }
+
+      // Inject all page modules in order
+      for (const file of PAGE_MODULES) {
+        await chrome.scripting.executeScript({ target: { tabId }, files: [file] });
+      }
+      injectedSites.set(key, true);
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+
+  inflight.set(key, promise);
+  return promise;
 }
 
 export async function agentCall(tabId, method, ...args) {
@@ -90,6 +138,8 @@ export async function agentCall(tabId, method, ...args) {
     return results[0]?.result;
   } catch (e) {
     if (e.message && /XML|parser error|internal-suggestion/.test(e.message)) return null;
+    // Agent is gone — invalidate cache so next injectPageAgent re-injects
+    invalidate(tabId);
     console.error(`agentCall(${method}) failed:`, e);
     return null;
   }
