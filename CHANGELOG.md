@@ -2,6 +2,16 @@
 
 > \u6B63\u5F0F\u4E0A\u7EBF\u524D\u5747\u4E3A 0.x \u7248\u672C
 
+## v0.6.0 \u2014 2026-03-25
+
+**perf: three-layer cache optimization (injection cache, plan cache, page bundle)**
+
+- **Injection cache**: `Set<tabId>` + `Map<tabId, Promise>` concurrency guard, liveness try-catch, agentCall failure auto-invalidate
+- **Plan cache**: LRU Map (max 50) keyed by `site|||instruction`, skips LLM plan() on repeat (~2-5s \u2192 <1ms)
+- **Page bundle**: 6 page modules concatenated into single `page-bundle.js` (1342 lines), 6x executeScript \u2192 1x
+- **Build script**: `bash build.sh` for concatenation after page/ source changes
+- **Commits**: f667420, da08b1a, 83cbcc6
+
 ## v0.5.0 \u2014 2026-03-24
 
 **refactor: split monolithic files into ES modules (13 files, no logic changes)**
