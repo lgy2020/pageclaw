@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PageClaw",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "description": "AI-powered browser automation. Type @ai in the address bar and tell the AI what to do. Supports Google, YouTube, Bilibili, Amazon, and more.",
   "permissions": ["activeTab", "scripting", "storage", "omnibox", "debugger", "webNavigation"],
   "host_permissions": ["<all_urls>"],

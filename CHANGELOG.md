@@ -2,6 +2,23 @@
 
 > \u6B63\u5F0F\u4E0A\u7EBF\u524D\u5747\u4E3A 0.x \u7248\u672C
 
+
+## v0.7.0 — 2026-03-28
+
+**feat: instant overlay + conversation history (2 features, 0 breaking changes)**
+
+- **Instant overlay**: `showOverlayFast()` for immediate visual feedback before page-bundle injection
+- **Cross-page persistence**: webNavigation listeners re-inject overlay on page loads and SPA navigations
+- **Early injection**: `inject-overlay.js` content script at document_start for pre-DOM overlay detection
+- **Session state**: taskRunning tracked in sessionStorage for cross-context coordination
+- **Bug fixes**: document.body null check for about:blank pages; removed 30s auto-hide timeout during long tasks
+- **Conversation history**: per-tab turn tracking (max 20 turns, core/history.js)
+- **Context injection**: LLM planning now includes recent 5 turns for follow-up instructions
+- **History API**: GET_HISTORY / CLEAR_HISTORY / EXPORT_HISTORY message handlers
+- **Auto-cleanup**: tab close triggers history cleanup via chrome.tabs.onRemoved
+- **New permission**: webNavigation in manifest
+- **Commits**: 825a455, c380dcf
+
 ## v0.6.0 \u2014 2026-03-25
 
 **perf: three-layer cache optimization (injection cache, plan cache, page bundle)**
