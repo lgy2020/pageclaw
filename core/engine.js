@@ -1,16 +1,17 @@
 import { sleep } from '../utils/sleep.js';
 import { injectPageAgent, agentCall, agentShowToast } from '../worker/tab-manager.js';
-import { executeStep } from './executor.js';
+import { executeStep, executeStepWithRetry } from './executor.js';
 import { ConversationHistory } from './history.js';
+import { classifyError, getSuggestion, RecoveryError } from './recovery.js';
 
-let currentTask = null;
+var currentTask = null;
 
 // Plan cache: site + instruction → plan array (LRU, max 50)
-const planCache = new Map();
-const PLAN_CACHE_MAX = 50;
+var planCache = new Map();
+var PLAN_CACHE_MAX = 50;
 
 // Conversation history (per-tab)
-const history = new ConversationHistory();
+var history = new ConversationHistory();
 export { history };
 
 function getPlanCacheKey(pageInfo, instruction) {
@@ -62,15 +63,15 @@ export async function executeAITask(instruction, tabId, llm) {
     await showOverlayFast(tabId);
 
     // Get page context
-    let pageInfo = null;
+    var pageInfo = null;
     try {
       await injectPageAgent(tabId);
       pageInfo = await agentCall(tabId, 'getPageInfo');
     } catch (e) {}
 
     // Try plan cache first
-    const cacheKey = getPlanCacheKey(pageInfo, instruction);
-    let plan = planCache.get(cacheKey);
+    var cacheKey = getPlanCacheKey(pageInfo, instruction);
+    var plan = planCache.get(cacheKey);
 
     if (plan) {
       // LRU: re-insert to move to end
@@ -95,12 +96,12 @@ export async function executeAITask(instruction, tabId, llm) {
       return;
     }
 
-    const validTypes = [
+    var validTypes = [
       'navigate', 'type', 'click', 'pressKey', 'wait', 'analyze',
       'play_video', 'scroll', 'scrollTo', 'scrollMultiple',
       'fillForm', 'getText', 'getPrices'
     ];
-    const validPlan = plan.filter(s => s?.type && validTypes.includes(s.type));
+    var validPlan = plan.filter(s => s?.type && validTypes.includes(s.type));
 
     if (!validPlan.length) {
       validPlan.push(
@@ -112,24 +113,97 @@ export async function executeAITask(instruction, tabId, llm) {
 
     await agentShowToast(tabId, `\u{1F4CB} \u5171 ${validPlan.length} \u6B65`);
 
-    const stepDescs = validPlan.map(s => s.description);
+    var stepDescs = validPlan.map(function(s) { return s.description; });
     try { await agentCall(tabId, 'initSteps', stepDescs); } catch (e) { console.warn('initSteps failed:', e); }
 
-    for (let i = 0; i < validPlan.length; i++) {
+    var replanCount = 0;
+    var failedSteps = [];
+    var stepRetryCount = {};
+
+    for (var i = 0; i < validPlan.length; i++) {
       if (abort.signal.aborted) {
         await agentShowToast(tabId, '\u23F9\uFE0F \u5DF2\u53D6\u6D88');
         return;
       }
-      const step = validPlan[i];
+      var step = validPlan[i];
+      step.index = i;
       await injectPageAgent(tabId);
       // Re-init step list every iteration (handles page refreshes on same tab)
       try { await agentCall(tabId, 'initSteps', stepDescs); } catch (e) {}
       await agentShowToast(tabId, `\u{1F504} [${i + 1}/${validPlan.length}] ${step.description}`);
-      const result = await executeStep(step, tabId, llm);
+
+      try {
+        var result = await executeStepWithRetry(step, tabId, llm, 3);
+      } catch (err) {
+        var failureType = classifyError(err);
+        // Show failure summary card
+        try {
+          await agentCall(tabId, 'markStepFailed', i);
+          await agentCall(tabId, 'showFailureSummary', {
+            stepName: step.description,
+            failureType: failureType,
+            reason: err.message,
+            suggestion: getSuggestion(failureType)
+          });
+        } catch (e) {}
+        failedSteps.push({ step: step.description, failureType: failureType, reason: err.message });
+
+        // Dynamic replanning (P1): max 2 replans
+        if (replanCount < 2) {
+          replanCount++;
+          try { await agentCall(tabId, 'showReplanning'); } catch (e) {}
+          await agentShowToast(tabId, '\u267B\uFE0F \u91CD\u65B0\u89C4\u5212\u4E2D...');
+
+          var remainingSteps = validPlan.slice(i + 1);
+          var failContext = {
+            failedStep: step.description,
+            failureType: failureType,
+            reason: err.message,
+            completedSteps: validPlan.slice(0, i).map(function(s) { return s.description; }),
+            currentUrl: ''
+          };
+          try {
+            var snap = await agentCall(tabId, 'getPageInfo');
+            failContext.currentUrl = snap?.url || '';
+          } catch (e) {}
+
+          try {
+            var safePageInfo = pageInfo || { url: '', title: '', site: 'unknown' };
+            var newPlan = await llm.replan(instruction, safePageInfo, failContext, remainingSteps, history.formatForLLM(tabId));
+            if (newPlan?.length) {
+              // Rebuild plan from current position
+              validPlan = validPlan.slice(0, i).concat(newPlan);
+              stepDescs = validPlan.map(function(s) { return s.description; });
+              try { await agentCall(tabId, 'initSteps', stepDescs); } catch (e) {}
+              // Track step retry count to avoid infinite replan loop
+              stepRetryCount[i] = (stepRetryCount[i] || 0) + 1;
+              if (stepRetryCount[i] > 2) {
+                // Too many replans for this step, skip it
+                console.warn('[PageClaw] Step ' + i + ' exceeded replan limit, skipping');
+                await sleep(300);
+                continue;
+              }
+              // Decrement i so the loop continues from the current position
+              // Clean up failure summary before continuing
+              try { await agentCall(tabId, '_removeFailureSummary'); } catch (e) {}
+              i--;
+              await sleep(500);
+              continue;
+            }
+          } catch (replanErr) {
+            console.error('[PageClaw] Replanning failed:', replanErr);
+          }
+        }
+
+        // No more replans or replanning failed — re-throw
+        throw err;
+      }
+
       await agentCall(tabId, 'highlightElements');
 
       if (result?.newTabId) {
         tabId = result.newTabId;
+        if (currentTask) currentTask.tabId = tabId;
         await injectPageAgent(tabId);
         // Re-init step list on the new page
         try {
@@ -141,12 +215,17 @@ export async function executeAITask(instruction, tabId, llm) {
       await sleep(300);
     }
 
-    await agentShowToast(tabId, '\u{1F389} \u5B8C\u6210\uFF01');
+    // Show failure summary if there were recovered failures
+    if (failedSteps.length > 0) {
+      await agentShowToast(tabId, '\u{1F389} \u5B8C\u6210\uFF08\u5DF2\u81EA\u52A8\u6062\u590D ' + failedSteps.length + ' \u4E2A\u95EE\u9898\uFF09');
+    } else {
+      await agentShowToast(tabId, '\u{1F389} \u5B8C\u6210\uFF01');
+    }
 
     // Store turn in conversation history
     try {
-      const pageSnap = pageInfo ? { url: pageInfo.url || '', title: pageInfo.title || '' } : { url: '', title: '' };
-      history.addTurn(tabId, instruction, validPlan, [], pageSnap);
+      var pageSnap = pageInfo ? { url: pageInfo.url || '', title: pageInfo.title || '' } : { url: '', title: '' };
+      history.addTurn(tabId, instruction, validPlan, failedSteps, pageSnap);
     } catch {}
   } catch (err) {
     if (err.name === 'AbortError' || abort.signal.aborted) {

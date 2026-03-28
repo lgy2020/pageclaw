@@ -5,12 +5,12 @@ export class LLMClient {
     this.baseUrl = baseUrl;
   }
 
-  async call(systemPrompt, userPrompt, signal) {
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 30000);
-    if (signal) signal.addEventListener('abort', () => ctrl.abort());
+  async call(systemPrompt, userPrompt, abortSignal) {
+    var ctrl = new AbortController();
+    var timeout = setTimeout(() => ctrl.abort(), 30000);
+    if (abortSignal) abortSignal.addEventListener('abort', () => ctrl.abort());
     try {
-      const resp = await fetch(`${this.baseUrl}/chat/completions`, {
+      var resp = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -28,7 +28,7 @@ export class LLMClient {
         signal: ctrl.signal
       });
       if (!resp.ok) {
-        const e = await resp.text();
+        var e = await resp.text();
         throw new Error(`LLM API error ${resp.status}: ${e}`);
       }
       return (await resp.json()).choices[0].message.content;
@@ -44,15 +44,15 @@ export class LLMClient {
   }
 
   async plan(instruction, pageInfo, historyText) {
-    const pageCtx = pageInfo && pageInfo.url !== 'about:blank'
+    var pageCtx = pageInfo && pageInfo.url !== 'about:blank'
       ? `\nCurrent page: ${pageInfo.url}\nPage title: ${pageInfo.title}\nSite type: ${pageInfo.site}\nHas search box: ${pageInfo.hasSearchBox}\nHas video: ${pageInfo.hasVideo}\nHas form: ${pageInfo.hasForm}\n`
       : '';
 
-    const historyCtx = historyText
+    var historyCtx = historyText
       ? '\nPrevious conversation context:\n' + historyText + '\n\nUse this to understand references like first result, go back, click that button, etc.\n\n'
       : '';
-    const prompt = historyCtx + buildPlanPrompt(instruction, pageCtx);
-    const raw = await this.call(
+    var prompt = historyCtx + buildPlanPrompt(instruction, pageCtx);
+    var raw = await this.call(
       'You are a browser automation assistant. Output ONLY a JSON array. No markdown. Step types: navigate, type, click, pressKey, wait, scroll, scrollTo, scrollMultiple, fillForm, analyze, play_video, getText, getPrices.',
       prompt
     );
@@ -61,12 +61,12 @@ export class LLMClient {
 
   async findElement(description, snapshot) {
     if (!snapshot?.elements?.length) return -1;
-    const elements = snapshot.elements.slice(0, 50).map(e => ({
+    var elements = snapshot.elements.slice(0, 50).map(e => ({
       i: e.index, tag: e.tag, text: (e.text || '').substring(0, 40),
       name: e.name || '', ph: e.placeholder || '', aria: e.ariaLabel || '',
       href: (e.href || '').substring(0, 60), type: e.type || ''
     }));
-    const prompt = `Page: ${snapshot.url} (${snapshot.site || 'unknown site'})
+    var prompt = `Page: ${snapshot.url} (${snapshot.site || 'unknown site'})
 Title: ${snapshot.title}
 
 Interactive elements:
@@ -83,9 +83,9 @@ Tips:
 - Products: h2>a in result items
 
 Output: {"index": number, "reason": "brief"} — JSON only.`;
-    const raw = await this.call('Output JSON only.', prompt);
+    var raw = await this.call('Output JSON only.', prompt);
     try {
-      const r = this.parseJSON(raw);
+      var r = this.parseJSON(raw);
       return typeof r.index === 'number' ? r.index : -1;
     } catch {
       return -1;
@@ -93,8 +93,8 @@ Output: {"index": number, "reason": "brief"} — JSON only.`;
   }
 
   async analyzeAndDecide(snapshot, searchResults, goal) {
-    const results = (searchResults?.results || []).slice(0, 5);
-    const prompt = `Page: ${snapshot.url} (${searchResults?.site || snapshot.site || ''})
+    var results = (searchResults?.results || []).slice(0, 5);
+    var prompt = `Page: ${snapshot.url} (${searchResults?.site || snapshot.site || ''})
 Goal: ${goal}
 
 Results (${results.length}):
@@ -106,8 +106,44 @@ ${JSON.stringify(results.map((r, i) => ({
 Choose best match for goal. Prefer videos if goal involves video.
 
 Output JSON: {"type":"click","target":"description","description":"..."}`;
-    const raw = await this.call('Output JSON only.', prompt);
+    var raw = await this.call('Output JSON only.', prompt);
     try { return this.parseJSON(raw); } catch { return null; }
+  }
+
+  async replan(instruction, pageInfo, failContext, remainingSteps, historyText) {
+    var pageCtx = pageInfo && pageInfo.url !== 'about:blank'
+      ? `\nCurrent page: ${pageInfo.url}\nPage title: ${pageInfo.title}\nSite type: ${pageInfo.site}\n`
+      : '';
+
+    var historyCtx = historyText
+      ? '\nPrevious conversation context:\n' + historyText + '\n\n'
+      : '';
+
+    var prompt = `${historyCtx}${pageCtx}
+Original instruction: "${instruction}"
+
+A step in the plan failed:
+- Failed step: ${failContext.failedStep}
+- Failure type: ${failContext.failureType}
+- Reason: ${failContext.reason}
+- Current page URL: ${failContext.currentUrl}
+- Completed steps: ${JSON.stringify(failContext.completedSteps || [])}
+- Remaining steps that may need adjustment: ${JSON.stringify(remainingSteps.map(s => ({ type: s.type, description: s.description })))}
+
+You must generate a NEW plan for the remaining work. The page may have changed.
+Consider:
+1. If element-not-found: maybe the page layout changed, try alternative selectors
+2. If timeout: add longer waits
+3. If navigation issue: re-navigate or take alternative path
+
+Output a JSON array of steps to replace the remaining steps. Use the same step types as normal planning.
+Output ONLY a JSON array. No markdown.`;
+
+    var raw = await this.call(
+      'You are a browser automation assistant replanning after a failure. Output ONLY a JSON array of steps.',
+      prompt
+    );
+    return this.parseJSON(raw);
   }
 }
 

@@ -45,6 +45,10 @@
     highlightElements: animSystem.highlightElements.bind(animSystem),
     initSteps: animSystem.initSteps.bind(animSystem),
     markStepFailed: animSystem.markStepFailed.bind(animSystem),
+    showRetryStatus: animSystem.showRetryStatus.bind(animSystem),
+    showFailureSummary: animSystem.showFailureSummary.bind(animSystem),
+    showReplanning: animSystem.showReplanning.bind(animSystem),
+    _removeFailureSummary: animSystem._removeFailureSummary.bind(animSystem),
 
     // Utilities (from constants.js or page-info.js)
     _getElement: pageInfo._getElement.bind(pageInfo),

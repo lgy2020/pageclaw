@@ -8,6 +8,7 @@ var animSystem = {
   _animOverlay: null, _animCursor: null, _animStyle: null,
   _screenBorder: null,
   _highlightContainer: null, _highlightEls: [], _highlightLabels: [], _indexedEls: [],
+  _overlayHidden: false,
   _HL_COLORS: ['#FF0000','#00CC00','#0066FF','#FF8800','#8800CC','#008888','#FF3399','#4400CC','#FF4400','#228844','#CC0033','#336699'],
   
   _injectAnimCSS() {
@@ -81,7 +82,27 @@ var animSystem = {
       '.pc-step-item.completed .pc-step-num { background: #666; color: #222; }',
       '.pc-step-item.active .pc-step-num { background: #6366f1; color: #fff; }',
       '.pc-step-item.failed .pc-step-num { background: #ef4444; color: #fff; }',
-      '@keyframes pp-step-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }'
+      '@keyframes pp-step-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }',
+
+      // Retry state
+      '.pc-step-item.retrying { color: #f59e0b; }',
+      '.pc-step-item.retrying .pc-step-num { background: #f59e0b; color: #222; position: relative; }',
+      '.pc-step-item.retrying .pc-step-num::after { content: "\\27F3"; position: absolute; top: 0; left: 0; width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: 12px; animation: pp-spin 1s linear infinite; }',
+      '@keyframes pp-spin { to { transform: rotate(360deg); } }',
+      '.pc-step-item.retrying-warn { color: #eab308; }',
+      '.pc-step-item.retrying-warn .pc-step-num { background: #eab308; color: #222; }',
+
+      // Replanning state
+      '.pc-card.replanning { border-color: rgba(168,85,247,0.6) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(168,85,247,0.2) !important; }',
+      '.pc-card.replanning .pc-card-title { color: #a855f7 !important; }',
+      '.pc-card.replanning .pc-card-progress-bar { background: linear-gradient(90deg, #7c3aed, #a855f7) !important; }',
+
+      // Failure summary card
+      '#pc-failure-summary { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); z-index: 2147483642; pointer-events: auto; background: rgba(10,14,28,0.95); border: 2px solid #ef4444; border-radius: 14px; padding: 16px 20px; min-width: 300px; max-width: 400px; color: #eee; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(239,68,68,0.2); animation: pp-fade-in 0.3s ease-out; }',
+      '#pc-failure-summary .pc-fs-title { font-weight: 700; font-size: 14px; color: #ef4444; margin-bottom: 8px; }',
+      '#pc-failure-summary .pc-fs-step { font-size: 13px; color: #ddd; margin-bottom: 4px; }',
+      '#pc-failure-summary .pc-fs-reason { font-size: 12px; color: #f59e0b; margin-bottom: 6px; }',
+      '#pc-failure-summary .pc-fs-suggestion { font-size: 12px; color: #999; font-style: italic; }'
     ].join('\n');
     document.head.appendChild(s);
     this._animStyle = s;
@@ -218,6 +239,7 @@ var animSystem = {
   
   // --- Highlight elements with [0][1][2] labels ---
   highlightElements() {
+    if (this._overlayHidden) return;
     this._clearHighlights();
     this._injectAnimCSS();
     if (!this._highlightContainer) {
@@ -261,7 +283,8 @@ var animSystem = {
   },
   
   _clearHighlights() {
-    if (this._highlightContainer) this._highlightContainer.innerHTML = '';
+    if (this._highlightContainer) { this._highlightContainer.remove(); }
+    this._highlightContainer = null;
     this._highlightEls = [];
     this._highlightLabels = [];
     this._indexedEls = [];
@@ -272,6 +295,7 @@ var animSystem = {
     // Remove fast overlay if present (showOverlayFast from engine.js)
     var q = document.getElementById('__pc_quick');
     if (q) q.remove();
+    this._overlayHidden = false;
     this._injectAnimCSS();
     this._createScreenBorder();
     this._setScreenBorderState('active');
@@ -354,24 +378,117 @@ if (card && current > 0) {
     }
   },
 
+  showRetryStatus(stepIndex, attempt, maxAttempts, failureType) {
+    if (!this._animOverlay) this.showOverlay();
+    var item = document.getElementById('pc-step-' + stepIndex);
+    if (item) {
+      if (attempt >= maxAttempts) {
+        item.className = 'pc-step-item retrying-warn';
+      } else {
+        item.className = 'pc-step-item retrying';
+      }
+      var textEl = item.querySelector('.pc-step-text');
+      if (textEl) {
+        var original = textEl.getAttribute('data-original') || textEl.textContent;
+        textEl.setAttribute('data-original', original);
+        textEl.textContent = original + ' \u{1F504} (' + attempt + '/' + maxAttempts + ')';
+      }
+    }
+    // Update card step text
+    var step = document.getElementById('pc-step');
+    if (step) {
+      var typeLabels = {
+        'element-not-found': '\u5143\u7D20\u672A\u627E\u5230',
+        'not-interactable': '\u5143\u7D20\u4E0D\u53EF\u4EA4\u4E92',
+        'timeout': '\u64CD\u4F5C\u8D85\u65F6',
+        'navigation': '\u9875\u9762\u8DF3\u8F6C\u5F02\u5E38',
+        'unknown': '\u672A\u77E5\u95EE\u9898'
+      };
+      var label = typeLabels[failureType] || '\u91CD\u8BD5\u4E2D';
+      step.textContent = '\u9047\u5230\u95EE\u9898\uFF1A' + label + ' \uFF0C\u6B63\u5728\u91CD\u8BD5(' + (attempt + 1) + '/' + maxAttempts + ')';
+    }
+    // Update progress bar color to yellow for warning
+    var bar = document.getElementById('pc-bar');
+    if (bar) {
+      bar.style.background = 'linear-gradient(90deg, #eab308, #facc15)';
+    }
+    var card = document.getElementById('pc-card');
+    if (card) {
+      card.className = 'pc-card executing';
+    }
+  },
+
+  showFailureSummary(summary) {
+    if (!this._animOverlay) this.showOverlay();
+    this._removeFailureSummary();
+    // Red flash
+    this._setScreenBorderState('error');
+    var card = document.createElement('div');
+    card.id = 'pc-failure-summary';
+    card.setAttribute('data-pageclaw-ignore', 'true');
+    var typeLabels = {
+      'element-not-found': '\u5143\u7D20\u672A\u627E\u5230',
+      'not-interactable': '\u5143\u7D20\u4E0D\u53EF\u4EA4\u4E92',
+      'timeout': '\u64CD\u4F5C\u8D85\u65F6',
+      'navigation': '\u9875\u9762\u8DF3\u8F6C\u5F02\u5E38',
+      'unknown': '\u672A\u77E5\u95EE\u9898'
+    };
+    var typeLabel = typeLabels[summary.failureType] || summary.failureType;
+    card.innerHTML =
+      '<div class="pc-fs-title">\u26A0\uFE0F \u65E0\u6CD5\u5B8C\u6210\u6B64\u6B65\u9AA4</div>' +
+      '<div class="pc-fs-step">' + (summary.stepName || '') + '</div>' +
+      '<div class="pc-fs-reason">\u539F\u56E0\uFF1A' + typeLabel + ' \u2014 ' + (summary.reason || '') + '</div>' +
+      '<div class="pc-fs-close" style="text-align:right;margin-top:10px;"><span style="cursor:pointer;color:#888;font-size:12px;border:1px solid #555;padding:3px 12px;border-radius:6px;">\u5173\u95ED</span></div>';
+    document.body.appendChild(card);
+    this._failureSummary = card;
+    // Close button + auto-hide after 10s
+    var self = this;
+    var closed = false;
+    var doClose = function() { if (!closed) { closed = true; self._removeFailureSummary(); } };
+    card.querySelector('.pc-fs-close').addEventListener('click', doClose);
+    setTimeout(doClose, 20000);
+  },
+
+  _removeFailureSummary() {
+    if (this._failureSummary) {
+      this._failureSummary.remove();
+      this._failureSummary = null;
+    }
+  },
+
+  showReplanning() {
+    if (!this._animOverlay) this.showOverlay();
+    var title = document.getElementById('pc-title');
+    var step = document.getElementById('pc-step');
+    var card = document.getElementById('pc-card');
+    var bar = document.getElementById('pc-bar');
+    if (title) title.textContent = '\u267B\uFE0F \u91CD\u65B0\u89C4\u5212\u4E2D...';
+    if (step) step.textContent = '\u6B63\u5728\u5206\u6790\u5F53\u524D\u9875\u9762\u72B6\u6001\uFF0C\u8C03\u6574\u6267\u884C\u8BA1\u5212';
+    if (card) card.className = 'pc-card replanning';
+    if (bar) bar.style.background = 'linear-gradient(90deg, #7c3aed, #a855f7)';
+    this._setScreenBorderState('thinking');
+  },
+
   setGlowState(state) {
     if (!this._animOverlay) this.showOverlay();
     var card = document.getElementById('pc-card');
     if (!card) return;
-    card.className = 'pc-card ' + state;
+    card.className = 'pc-card' + (state ? ' ' + state : '');
     this._setScreenBorderState(state);
   },
   
   hideOverlay() {
+    this._overlayHidden = true;
     if (this._animOverlay) {
       this._animOverlay.classList.add('hiding');
       var el = this._animOverlay;
       this._animOverlay = null;
       this._stepsList = null;
-      setTimeout(function() { el.remove(); }, 300);
+      setTimeout(function() { if (el) el.remove(); }, 300);
     }
     this._clearHighlights();
     this._removeScreenBorder();
+    this._removeFailureSummary();
     if (this._animCursor) { this._animCursor.remove(); this._animCursor = null; }
   }
   };

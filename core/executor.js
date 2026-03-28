@@ -1,6 +1,29 @@
 import { sleep } from '../utils/sleep.js';
 import { injectPageAgent, agentCall, waitForDOMReady, waitForElement, detectNewTab } from '../worker/tab-manager.js';
 import { typeViaDebugger } from '../worker/debugger-input.js';
+import { RecoveryError, classifyError, generateFallbackSelectors } from './recovery.js';
+
+var DEFAULT_MAX_RETRIES = 3;
+
+export async function executeStepWithRetry(step, tabId, llm, maxRetries) {
+	maxRetries = maxRetries ?? DEFAULT_MAX_RETRIES;
+	for (var attempt = 0; attempt < maxRetries; attempt++) {
+		try {
+			return await executeStep(step, tabId, llm);
+		} catch (err) {
+			var failureType = classifyError(err);
+			if (attempt === maxRetries - 1) throw err;
+			// Exponential backoff with ±20% jitter, capped at 10s
+			var baseMs = Math.min(Math.pow(2, attempt) * 1000, 10000);
+			var jitter = baseMs * 0.2 * (Math.random() * 2 - 1);
+			var backoffMs = Math.round(baseMs + jitter);
+			console.log('[PageClaw] Step failed (attempt ' + (attempt + 1) + '/' + maxRetries + '): ' + failureType + ' — retrying in ' + backoffMs + 'ms');
+			await sleep(backoffMs);
+			// Notify overlay of retry status
+			try { await agentCall(tabId, 'showRetryStatus', step.index || 0, attempt + 1, maxRetries, failureType); } catch (e) {}
+		}
+	}
+}
 
 export async function executeStep(step, tabId, llm) {
   switch (step.type) {
@@ -65,7 +88,7 @@ export async function executeStep(step, tabId, llm) {
       break;
 
     default:
-      throw new Error(`Unknown step type: ${step.type}`);
+      throw new RecoveryError('unknown', `Unknown step type: ${step.type}`);
   }
   return {};
 }
@@ -94,7 +117,7 @@ async function executeType(step, tabId, llm) {
 
   const snapshot = await agentCall(tabId, 'snapshot');
   const idx = await llm.findElement(step.target, snapshot);
-  if (idx === -1) throw new Error(`Cannot find element: ${step.target}`);
+  if (idx === -1) throw new RecoveryError('element-not-found', `Cannot find element: ${step.target}`);
   await agentCall(tabId, 'type', idx, step.value);
   return {};
 }
@@ -159,7 +182,7 @@ async function executeClick(step, tabId, llm) {
     idx = await llm.findElement(step.target, snapshot);
     if (idx >= 0) clickAction = () => agentCall(tabId, 'click', idx);
   }
-  if (idx === -1) throw new Error(`Cannot find element: ${step.target}`);
+  if (idx === -1) throw new RecoveryError('element-not-found', `Cannot find element: ${step.target}`);
 
   if (clickAction) {
     const nt = await detectNewTab(tabId, clickAction);
