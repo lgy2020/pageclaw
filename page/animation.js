@@ -255,6 +255,9 @@ var animSystem = {
   
   // --- Show overlay (status card + border + highlights + cursor) ---
   showOverlay() {
+    // Remove fast overlay if present (showOverlayFast from engine.js)
+    var q = document.getElementById('__pc_quick');
+    if (q) q.remove();
     this._injectAnimCSS();
     this._createScreenBorder();
     this._setScreenBorderState('active');

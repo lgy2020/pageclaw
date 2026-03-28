@@ -12,6 +12,28 @@ function getPlanCacheKey(pageInfo, instruction) {
   return `${pageInfo?.site || '_'}|||${instruction.toLowerCase().trim()}`;
 }
 
+/**
+ * Immediately show a border glow overlay without waiting for page-bundle injection.
+ * The full animation system (agent.js) will take over once page-bundle loads.
+ */
+async function showOverlayFast(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        if (document.getElementById('__pc_quick')) return;
+        const el = document.createElement('div');
+        el.id = '__pc_quick';
+        el.style.cssText =
+          'position:fixed;inset:0;z-index:2147483647;pointer-events:none;'
+          + 'border:3px solid #7c4dff;box-shadow:inset 0 0 30px rgba(124,77,255,0.3);'
+          + 'border-radius:4px;transition:border-color .5s,box-shadow .5s;';
+        (document.body || document.documentElement).appendChild(el);
+      },
+    });
+  } catch {}
+}
+
 export function getCurrentTask() {
   return currentTask;
 }
@@ -21,23 +43,25 @@ export function stopCurrentTask() {
     currentTask.abort.abort();
     agentShowToast(currentTask.tabId, '\u23F9\uFE0F \u5DF2\u53D6\u6D88').catch(() => {});
     currentTask = null;
+    chrome.storage.session.set({ taskRunning: false });
   }
 }
 
 export async function executeAITask(instruction, tabId, llm) {
   const abort = new AbortController();
   currentTask = { abort, tabId };
+  chrome.storage.session.set({ taskRunning: true });
 
   try {
+    // Show immediate visual feedback before heavy injection
+    await showOverlayFast(tabId);
+
     // Get page context
     let pageInfo = null;
     try {
       await injectPageAgent(tabId);
       pageInfo = await agentCall(tabId, 'getPageInfo');
     } catch (e) {}
-
-    // Show animation overlay
-    try { await agentCall(tabId, 'showOverlay'); } catch (e) {}
 
     // Try plan cache first
     const cacheKey = getPlanCacheKey(pageInfo, instruction);
@@ -115,5 +139,6 @@ export async function executeAITask(instruction, tabId, llm) {
       await agentCall(currentTask?.tabId || tabId, 'hideOverlay');
     } catch (e) {}
     currentTask = null;
+    chrome.storage.session.set({ taskRunning: false });
   }
 }

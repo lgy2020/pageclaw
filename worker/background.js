@@ -3,6 +3,9 @@ import { executeAITask, getCurrentTask, stopCurrentTask } from '../core/engine.j
 import { getActiveTab, agentCall, agentShowToast } from './tab-manager.js';
 import { sleep } from '../utils/sleep.js';
 
+// Clear stale task flag on startup (in case of previous crash)
+chrome.storage.session.set({ taskRunning: false });
+
 // ============================================================
 // 1. Omnibox
 // ============================================================
@@ -34,8 +37,12 @@ chrome.omnibox.onInputEntered.addListener(async (text, disposition) => {
   }
   await saveToHistory(text.trim());
 
+  // Mark task as running immediately (before LLM call, so overlay shows early)
+  chrome.storage.session.set({ taskRunning: true });
+
   const config = await chrome.storage.local.get(['apiKey', 'model', 'baseUrl']);
   if (!config.apiKey) {
+    chrome.storage.session.set({ taskRunning: false });
     await agentShowToast(tabId, '\u274C Please configure your API Key first (click extension icon \u2192 Options)');
     chrome.runtime.openOptionsPage();
     return;
@@ -76,6 +83,66 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.set({ commandHistory: [] }).then(() => sendResponse({ ok: true }));
     return true;
   }
+});
+
+// ============================================================
+// 3. Web Navigation — re-inject overlay on every page load during task
+// ============================================================
+
+const INJECT_OVERLAY_FUNC = () => {
+  if (document.getElementById('__pc_quick')) return;
+  const el = document.createElement('div');
+  el.id = '__pc_quick';
+  el.style.cssText =
+    'position:fixed;inset:0;z-index:2147483647;pointer-events:none;' +
+    'border:3px solid #7c4dff;box-shadow:inset 0 0 30px rgba(124,77,255,0.3);' +
+    'border-radius:4px;transition:border-color .5s,box-shadow .5s;';
+  (document.body || document.documentElement).appendChild(el);
+};
+
+chrome.webNavigation.onCommitted.addListener(async (details) => {
+  // Only main frame navigations
+  if (details.frameId !== 0) return;
+  const { taskRunning } = await chrome.storage.session.get('taskRunning');
+  if (!taskRunning) return;
+  // Inject CSS border as early as possible (works even before DOM is ready)
+  try {
+    await chrome.scripting.insertCSS({
+      target: { tabId: details.tabId },
+      css: `
+        #__pc_quick {
+          position:fixed;inset:0;z-index:2147483647;pointer-events:none;
+          border:3px solid #7c4dff;box-shadow:inset 0 0 30px rgba(124,77,255,0.3);
+          border-radius:4px;transition:border-color .5s,box-shadow .5s;
+        }
+      `
+    });
+  } catch {}
+});
+
+chrome.webNavigation.onDOMContentLoaded.addListener(async (details) => {
+  if (details.frameId !== 0) return;
+  const { taskRunning } = await chrome.storage.session.get('taskRunning');
+  if (!taskRunning) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: details.tabId },
+      func: INJECT_OVERLAY_FUNC
+    });
+  } catch {}
+});
+
+// Also detect SPA navigations (Bilibili, YouTube, etc.)
+chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
+  if (details.frameId !== 0) return;
+  const { taskRunning } = await chrome.storage.session.get('taskRunning');
+  if (!taskRunning) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: details.tabId },
+      func: INJECT_OVERLAY_FUNC
+    });
+  } catch {}
 });
 
 async function testLLMConnection(config) {

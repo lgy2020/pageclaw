@@ -133,6 +133,8 @@ export async function agentCall(tabId, method, ...args) {
     return results[0]?.result;
   } catch (e) {
     if (e.message && /XML|parser error|internal-suggestion/.test(e.message)) return null;
+    // "No tab with id" — normal during navigation, just return null
+    if (e.message && /No tab with id/.test(e.message)) return null;
     // Agent is gone — invalidate cache so next injectPageAgent re-injects
     invalidate(tabId);
     console.error(`agentCall(${method}) failed:`, e);
