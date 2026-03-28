@@ -1,12 +1,17 @@
 import { sleep } from '../utils/sleep.js';
 import { injectPageAgent, agentCall, agentShowToast } from '../worker/tab-manager.js';
 import { executeStep } from './executor.js';
+import { ConversationHistory } from './history.js';
 
 let currentTask = null;
 
 // Plan cache: site + instruction → plan array (LRU, max 50)
 const planCache = new Map();
 const PLAN_CACHE_MAX = 50;
+
+// Conversation history (per-tab)
+const history = new ConversationHistory();
+export { history };
 
 function getPlanCacheKey(pageInfo, instruction) {
   return `${pageInfo?.site || '_'}|||${instruction.toLowerCase().trim()}`;
@@ -73,7 +78,7 @@ export async function executeAITask(instruction, tabId, llm) {
       planCache.set(cacheKey, plan);
     } else {
       await agentShowToast(tabId, '\u{1F9E0} \u6B63\u5728\u7406\u89E3...');
-      plan = await llm.plan(instruction, pageInfo);
+      plan = await llm.plan(instruction, pageInfo, history.formatForLLM(tabId));
 
       if (plan?.length) {
         // Evict oldest if at capacity
@@ -127,6 +132,12 @@ export async function executeAITask(instruction, tabId, llm) {
     }
 
     await agentShowToast(tabId, '\u{1F389} \u5B8C\u6210\uFF01');
+
+    // Store turn in conversation history
+    try {
+      const pageSnap = pageInfo ? { url: pageInfo.url || '', title: pageInfo.title || '' } : { url: '', title: '' };
+      history.addTurn(tabId, instruction, validPlan, [], pageSnap);
+    } catch {}
   } catch (err) {
     if (err.name === 'AbortError' || abort.signal.aborted) {
       await agentShowToast(tabId, '\u23F9\uFE0F \u5DF2\u53D6\u6D88');

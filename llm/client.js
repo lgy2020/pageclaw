@@ -43,12 +43,15 @@ export class LLMClient {
     );
   }
 
-  async plan(instruction, pageInfo) {
+  async plan(instruction, pageInfo, historyText) {
     const pageCtx = pageInfo && pageInfo.url !== 'about:blank'
       ? `\nCurrent page: ${pageInfo.url}\nPage title: ${pageInfo.title}\nSite type: ${pageInfo.site}\nHas search box: ${pageInfo.hasSearchBox}\nHas video: ${pageInfo.hasVideo}\nHas form: ${pageInfo.hasForm}\n`
       : '';
 
-    const prompt = buildPlanPrompt(instruction, pageCtx);
+    const historyCtx = historyText
+      ? '\nPrevious conversation context:\n' + historyText + '\n\nUse this to understand references like first result, go back, click that button, etc.\n\n'
+      : '';
+    const prompt = historyCtx + buildPlanPrompt(instruction, pageCtx);
     const raw = await this.call(
       'You are a browser automation assistant. Output ONLY a JSON array. No markdown. Step types: navigate, type, click, pressKey, wait, scroll, scrollTo, scrollMultiple, fillForm, analyze, play_video, getText, getPrices.',
       prompt

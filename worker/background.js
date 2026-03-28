@@ -1,5 +1,5 @@
 import { LLMClient } from '../llm/client.js';
-import { executeAITask, getCurrentTask, stopCurrentTask } from '../core/engine.js';
+import { executeAITask, getCurrentTask, stopCurrentTask, history } from '../core/engine.js';
 import { getActiveTab, agentCall, agentShowToast } from './tab-manager.js';
 import { sleep } from '../utils/sleep.js';
 
@@ -143,6 +143,35 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
       func: INJECT_OVERLAY_FUNC
     });
   } catch {}
+});
+
+// ============================================================
+// 3. History — message handlers
+// ============================================================
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'GET_HISTORY') {
+    const tabId = sender.tab?.id;
+    if (tabId) sendResponse({ history: history.getAll(tabId) });
+    else sendResponse({ history: [] });
+    return true;
+  }
+  if (msg.type === 'CLEAR_HISTORY') {
+    const tabId = sender.tab?.id;
+    if (tabId) history.clearHistory(tabId);
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.type === 'EXPORT_HISTORY') {
+    const tabId = sender.tab?.id;
+    sendResponse({ json: tabId ? history.exportJSON(tabId) : '[]' });
+    return true;
+  }
+});
+
+// Clean up history when tab closes
+chrome.tabs.onRemoved.addListener((tabId) => {
+  history.removeTab(tabId);
 });
 
 async function testLLMConnection(config) {
