@@ -3,6 +3,20 @@
 > \u6B63\u5F0F\u4E0A\u7EBF\u524D\u5747\u4E3A 0.x \u7248\u672C
 
 
+## v0.8.0 — 2026-03-28
+
+**feat: real-time task progress feedback (step list, color-coded progress bar, status icons)**
+
+- **Step list overlay**: shows all steps with status icons (⏳ pending / ⚡ active / ✅ completed / ❌ failed)
+- **Step indicator**: each step displays number badge + description (truncated at 180px with ellipsis)
+- **Active step animation**: current step has breathing pulse animation (opacity 0.6-1)
+- **Color-coded progress bar**: red (0-30%) → yellow (30-70%) → green (70-100%) with smooth transitions
+- **Scrollable list**: max-height 208px (8 steps before scroll), bottom gradient mask for scroll hint
+- **Cross-page persistence**: step list re-initialized on every loop iteration + on new tab detection
+- **XSS-safe**: step descriptions use `createElement` + `textContent`, no innerHTML injection
+- **Files changed**: page/animation.js (+83), core/engine.js (+10), page/agent.js (+2)
+- **Multi-agent pipeline**: PM (Kimi) → Designer (Kimi) → OpenCode → Reviewer (DeepSeek) → fix → re-review
+
 ## v0.7.0 — 2026-03-28
 
 **feat: instant overlay + conversation history (2 features, 0 breaking changes)**

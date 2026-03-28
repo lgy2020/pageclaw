@@ -43,6 +43,8 @@
     updateStatus: animSystem.updateStatus.bind(animSystem),
     setGlowState: animSystem.setGlowState.bind(animSystem),
     highlightElements: animSystem.highlightElements.bind(animSystem),
+    initSteps: animSystem.initSteps.bind(animSystem),
+    markStepFailed: animSystem.markStepFailed.bind(animSystem),
 
     // Utilities (from constants.js or page-info.js)
     _getElement: pageInfo._getElement.bind(pageInfo),

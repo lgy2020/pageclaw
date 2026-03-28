@@ -112,6 +112,9 @@ export async function executeAITask(instruction, tabId, llm) {
 
     await agentShowToast(tabId, `\u{1F4CB} \u5171 ${validPlan.length} \u6B65`);
 
+    const stepDescs = validPlan.map(s => s.description);
+    try { await agentCall(tabId, 'initSteps', stepDescs); } catch (e) { console.warn('initSteps failed:', e); }
+
     for (let i = 0; i < validPlan.length; i++) {
       if (abort.signal.aborted) {
         await agentShowToast(tabId, '\u23F9\uFE0F \u5DF2\u53D6\u6D88');
@@ -119,6 +122,8 @@ export async function executeAITask(instruction, tabId, llm) {
       }
       const step = validPlan[i];
       await injectPageAgent(tabId);
+      // Re-init step list every iteration (handles page refreshes on same tab)
+      try { await agentCall(tabId, 'initSteps', stepDescs); } catch (e) {}
       await agentShowToast(tabId, `\u{1F504} [${i + 1}/${validPlan.length}] ${step.description}`);
       const result = await executeStep(step, tabId, llm);
       await agentCall(tabId, 'highlightElements');
@@ -126,6 +131,11 @@ export async function executeAITask(instruction, tabId, llm) {
       if (result?.newTabId) {
         tabId = result.newTabId;
         await injectPageAgent(tabId);
+        // Re-init step list on the new page
+        try {
+          await agentCall(tabId, 'initSteps', stepDescs);
+          await agentCall(tabId, 'updateStatus', step.description, i + 1, validPlan.length);
+        } catch (e) {}
         await agentCall(tabId, 'highlightElements');
       }
       await sleep(300);

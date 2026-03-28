@@ -67,7 +67,21 @@ var animSystem = {
       '#pc-cursor .pc-ripple-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); border-radius: 50%; border: 2px solid #e94560; animation: pp-ripple 0.8s ease-out forwards; pointer-events: none; }',
       '@keyframes pp-ripple { 0% { width: 0; height: 0; opacity: 1; } 100% { width: 100px; height: 100px; opacity: 0; } }',
       '@keyframes pp-ripple2 { 0% { width: 0; height: 0; opacity: 0.7; } 100% { width: 150px; height: 150px; opacity: 0; } }',
-      '@keyframes pp-ripple3 { 0% { width: 0; height: 0; opacity: 0.5; } 100% { width: 200px; height: 200px; opacity: 0; } }'
+      '@keyframes pp-ripple3 { 0% { width: 0; height: 0; opacity: 0.5; } 100% { width: 200px; height: 200px; opacity: 0; } }',
+
+      // Steps list
+      '.pc-steps-list { max-height: 208px; overflow-y: auto; margin-top: 8px; mask-image: linear-gradient(to bottom, black calc(100% - 12px), transparent 100%); -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 12px), transparent 100%); }',
+      '.pc-step-item { display: flex; align-items: center; gap: 12px; padding: 4px 0; font-size: 12px; color: #aaa; border-radius: 4px; }',
+      '.pc-step-item.active { color: #fff; animation: pp-step-pulse 1.5s ease-in-out infinite; }',
+      '.pc-step-item.completed { color: #666; }',
+      '.pc-step-item.failed { color: #ef4444; }',
+      '.pc-step-item.pending { color: #666; opacity: 0.6; }',
+      '.pc-step-item .pc-step-num { min-width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: rgba(255,255,255,0.1); font-size: 10px; font-weight: 600; }',
+      '.pc-step-item .pc-step-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }',
+      '.pc-step-item.completed .pc-step-num { background: #666; color: #222; }',
+      '.pc-step-item.active .pc-step-num { background: #6366f1; color: #fff; }',
+      '.pc-step-item.failed .pc-step-num { background: #ef4444; color: #fff; }',
+      '@keyframes pp-step-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }'
     ].join('\n');
     document.head.appendChild(s);
     this._animStyle = s;
@@ -267,23 +281,79 @@ var animSystem = {
     var widget = document.createElement('div');
     widget.id = 'pc-status';
     widget.setAttribute('data-pageclaw-ignore', 'true');
-    widget.innerHTML = '<div class="pc-card executing" id="pc-card"><div class="pc-card-title" id="pc-title">PageClaw</div><div class="pc-card-step" id="pc-step">Starting...</div><div class="pc-card-progress"><div class="pc-card-progress-bar" id="pc-bar" style="width:0%"></div></div><div class="pc-card-counter" id="pc-counter"></div></div>';
+    widget.innerHTML = '<div class="pc-card executing" id="pc-card"><div class="pc-card-title" id="pc-title">PageClaw</div><div class="pc-card-step" id="pc-step">Starting...</div><div class="pc-card-progress"><div class="pc-card-progress-bar" id="pc-bar" style="width:0%"></div></div><div class="pc-card-counter" id="pc-counter"></div><div class="pc-steps-list" id="pc-steps-list"></div></div>';
     document.body.appendChild(widget);
-    this._animOverlay = widget;
+this._animOverlay = widget;
+    this._stepsList = widget.querySelector('#pc-steps-list');
   },
-  
+
+  initSteps(descriptions) {
+    if (!this._animOverlay) this.showOverlay();
+    var list = this._animOverlay.querySelector('#pc-steps-list');
+    if (!list) return;
+    list.innerHTML = '';
+    for (var i = 0; i < descriptions.length; i++) {
+      var item = document.createElement('div');
+      item.className = 'pc-step-item pending';
+      item.id = 'pc-step-' + i;
+      var numSpan = document.createElement('span');
+      numSpan.className = 'pc-step-num';
+      numSpan.textContent = (i + 1);
+      var textSpan = document.createElement('span');
+      textSpan.className = 'pc-step-text';
+      textSpan.textContent = descriptions[i] || '';
+      item.appendChild(numSpan);
+      item.appendChild(textSpan);
+      list.appendChild(item);
+    }
+  },
+
   updateStatus(text, current, total) {
     if (!this._animOverlay) this.showOverlay();
     var title = document.getElementById('pc-title');
     var step = document.getElementById('pc-step');
     var bar = document.getElementById('pc-bar');
     var counter = document.getElementById('pc-counter');
+    var card = document.getElementById('pc-card');
     if (title) title.textContent = 'PageClaw';
     if (step) step.textContent = text;
     if (counter && total > 0) counter.textContent = current + ' / ' + total;
-    if (bar && total > 0) bar.style.width = ((current / total) * 100) + '%';
+    if (bar && total > 0) {
+      var pct = (current / total) * 100;
+      bar.style.width = pct + '%';
+      if (pct < 30) {
+        bar.style.background = 'linear-gradient(90deg, #dc2626, #ef4444)';
+      } else if (pct < 70) {
+        bar.style.background = 'linear-gradient(90deg, #eab308, #facc15)';
+      } else {
+        bar.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
+      }
+    }
+    var list = this._animOverlay.querySelector('#pc-steps-list');
+    if (list) {
+      var items = list.querySelectorAll('.pc-step-item');
+      for (var i = 0; i < items.length; i++) {
+        if (i < current - 1) {
+          items[i].className = 'pc-step-item completed';
+        } else if (i === current - 1) {
+          items[i].className = 'pc-step-item active';
+        } else {
+          items[i].className = 'pc-step-item pending';
+        }
+      }
+    }
+if (card && current > 0) {
+      card.className = 'pc-card executing';
+    }
   },
-  
+
+  markStepFailed(index) {
+    var item = document.getElementById('pc-step-' + index);
+    if (item) {
+      item.className = 'pc-step-item failed';
+    }
+  },
+
   setGlowState(state) {
     if (!this._animOverlay) this.showOverlay();
     var card = document.getElementById('pc-card');
@@ -297,6 +367,7 @@ var animSystem = {
       this._animOverlay.classList.add('hiding');
       var el = this._animOverlay;
       this._animOverlay = null;
+      this._stepsList = null;
       setTimeout(function() { el.remove(); }, 300);
     }
     this._clearHighlights();
