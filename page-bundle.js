@@ -981,7 +981,43 @@ var pageInfo = {
     return /youtube|bilibili|youku|iqiyi|vimeo|dailymotion|video/.test(url) ||
            /视频|video|发布会|直播|播放|movie|film/i.test(title);
   },
-  
+
+  // ==================== 16. Structured Data Extraction ====================
+  extractData(extractConfig) {
+    var config = extractConfig || {};
+    var containerSel = config.selector || 'body';
+    var maxItems = config.maxItems || 20;
+    var fields = config.fields || [];
+    try {
+      if (config.type === 'list') {
+        var containers = document.querySelectorAll(containerSel);
+        var results = [];
+        for (var ci = 0; ci < containers.length && ci < maxItems; ci++) {
+          var item = {};
+          for (var fi = 0; fi < fields.length; fi++) {
+            var f = fields[fi];
+            var el = containers[ci].querySelector(f.selector);
+            if (el) {
+              var attr = f.attr || 'text';
+              if (attr === 'text') item[f.name] = (el.textContent || '').trim().substring(0, 200);
+              else if (attr === 'href') item[f.name] = el.getAttribute('href') || '';
+              else if (attr === 'src') item[f.name] = el.getAttribute('src') || '';
+              else item[f.name] = el.getAttribute(attr) || '';
+            } else { item[f.name] = ''; }
+          }
+          results.push(item);
+        }
+        return { success: true, data: results, count: results.length };
+      }
+      if (config.type === 'text') {
+        var el = document.querySelector(containerSel);
+        if (!el) return { success: false, data: null, count: 0, error: 'Element not found' };
+        return { success: true, data: (el.textContent || '').trim().substring(0, 2000), count: 1 };
+      }
+      return { success: false, data: [], count: 0, error: 'Unknown type' };
+    } catch (e) { return { success: false, data: [], count: 0, error: e.message }; }
+  },
+
 };
 // page/animation.js — Visual Animation System v4
 // Contains: screen border, status card, cursor trail, click particles, highlight
@@ -1502,6 +1538,7 @@ if (card && current > 0) {
     parseSearchResults: pageInfo.parseSearchResults.bind(pageInfo),
     findVideo: pageInfo.findVideo.bind(pageInfo),
     playVideo: pageInfo.playVideo.bind(pageInfo),
+    extractData: pageInfo.extractData.bind(pageInfo),
 
     // Element Operations
     click: elementOps.click.bind(elementOps),

@@ -23,6 +23,7 @@
     parseSearchResults: pageInfo.parseSearchResults.bind(pageInfo),
     findVideo: pageInfo.findVideo.bind(pageInfo),
     playVideo: pageInfo.playVideo.bind(pageInfo),
+    extractData: pageInfo.extractData.bind(pageInfo),
 
     // Element Operations
     click: elementOps.click.bind(elementOps),

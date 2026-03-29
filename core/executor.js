@@ -87,6 +87,11 @@ export async function executeStep(step, tabId, llm) {
       await sleep((step.seconds || 2) * 1000);
       break;
 
+    case 'observe': {
+      var observeResult = await agentCall(tabId, 'extractData', step.extract);
+      return { observeResult: observeResult };
+    }
+
     default:
       throw new RecoveryError('unknown', `Unknown step type: ${step.type}`);
   }

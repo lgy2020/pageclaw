@@ -53,7 +53,7 @@ export class LLMClient {
       : '';
     var prompt = historyCtx + buildPlanPrompt(instruction, pageCtx);
     var raw = await this.call(
-      'You are a browser automation assistant. Output ONLY a JSON array. No markdown. Step types: navigate, type, click, pressKey, wait, scroll, scrollTo, scrollMultiple, fillForm, analyze, play_video, getText, getPrices.',
+      'You are a browser automation assistant. Output ONLY a JSON array. No markdown. Step types: navigate, type, click, pressKey, wait, scroll, scrollTo, scrollMultiple, fillForm, analyze, play_video, getText, getPrices, observe.',
       prompt
     );
     return this.parseJSON(raw);
@@ -164,6 +164,7 @@ Available step types (MUST use exactly these):
 - analyze: Analyze page content {"type":"analyze","goal":"find best result","description":"..."}
 - play_video: Play video {"type":"play_video","description":"..."}
 - getText: Read page text {"type":"getText","maxChars":3000,"description":"..."}
+- observe: Extract structured data {"type":"observe","extract":{"type":"list|text","selector":".item","fields":[{"name":"title","selector":"h2","attr":"text"}]},"description":"..."}
 ${pageCtx}
 User instruction: "${instruction}"
 
@@ -218,6 +219,10 @@ EXAMPLES BY SCENARIO:
 # 11. Read current page
 "what does this page say"
 [{"type":"getText","maxChars":3000,"description":"Read page"}]
+
+# 12. Extract structured data
+"extract all product names and prices from the page"
+[{"type":"observe","extract":{"type":"list","selector":".product-item","fields":[{"name":"name","selector":"h2","attr":"text"},{"name":"price","selector":".price","attr":"text"}]},"description":"Extract products"}]
 
 Generate steps for the user instruction. Output JSON array only.`;
 }

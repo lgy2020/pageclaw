@@ -99,7 +99,7 @@ export async function executeAITask(instruction, tabId, llm) {
     var validTypes = [
       'navigate', 'type', 'click', 'pressKey', 'wait', 'analyze',
       'play_video', 'scroll', 'scrollTo', 'scrollMultiple',
-      'fillForm', 'getText', 'getPrices'
+      'fillForm', 'getText', 'getPrices', 'observe'
     ];
     var validPlan = plan.filter(s => s?.type && validTypes.includes(s.type));
 
@@ -197,6 +197,54 @@ export async function executeAITask(instruction, tabId, llm) {
 
         // No more replans or replanning failed — re-throw
         throw err;
+      }
+
+      // Handle observe step with onEmpty='replan'
+      if (step.type === 'observe' && step.onEmpty === 'replan') {
+        var obsData = result?.observeResult;
+        if (!obsData || !obsData.success || !obsData.count || obsData.count === 0) {
+          console.log('[PageClaw] Observe returned empty, triggering replan');
+          if (replanCount < 2) {
+            replanCount++;
+            try { await agentCall(tabId, 'showReplanning'); } catch (e) {}
+            await agentShowToast(tabId, '\u267B\uFE0F \u89C2\u5BDF\u7ED3\u679C\u4E3A\u7A7A\uFF0C\u91CD\u65B0\u89C4\u5212\u4E2D...');
+
+            var remainingSteps = validPlan.slice(i + 1);
+            var failContext = {
+              failedStep: step.description,
+              failureType: 'empty-observe',
+              reason: 'Observe step returned empty results',
+              completedSteps: validPlan.slice(0, i).map(function(s) { return s.description; }),
+              currentUrl: ''
+            };
+            try {
+              var snap = await agentCall(tabId, 'getPageInfo');
+              failContext.currentUrl = snap?.url || '';
+            } catch (e) {}
+
+            try {
+              var safePageInfo = pageInfo || { url: '', title: '', site: 'unknown' };
+              var newPlan = await llm.replan(instruction, safePageInfo, failContext, remainingSteps, history.formatForLLM(tabId));
+              if (newPlan?.length) {
+                validPlan = validPlan.slice(0, i).concat(newPlan);
+                stepDescs = validPlan.map(function(s) { return s.description; });
+                try { await agentCall(tabId, 'initSteps', stepDescs); } catch (e) {}
+                stepRetryCount[i] = (stepRetryCount[i] || 0) + 1;
+                if (stepRetryCount[i] > 2) {
+                  console.warn('[PageClaw] Step ' + i + ' exceeded replan limit, skipping');
+                  await sleep(300);
+                  continue;
+                }
+                try { await agentCall(tabId, '_removeFailureSummary'); } catch (e) {}
+                i--;
+                await sleep(500);
+                continue;
+              }
+            } catch (replanErr) {
+              console.error('[PageClaw] Replanning failed:', replanErr);
+            }
+          }
+        }
       }
 
       await agentCall(tabId, 'highlightElements');
