@@ -18,10 +18,12 @@
     .header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
     .header-icon { font-size: 24px; }
     .header-title { font-size: 16px; font-weight: 600; }
-    .quick-input-wrap { margin-bottom: 12px; }
-    .quick-input { width: 100%; padding: 10px 12px; font-size: 13px; background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; color: #eee; outline: none; }
+    .quick-input-wrap { display: flex; gap: 6px; margin-bottom: 12px; }
+    .quick-input { flex: 1; padding: 10px 12px; font-size: 13px; background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; color: #eee; outline: none; }
     .quick-input:focus { border-color: #e94560; }
     .quick-input::placeholder { color: #666; }
+    .quick-run-btn { background: #e94560; color: #fff; border: none; padding: 10px 14px; border-radius: 8px; font-size: 14px; cursor: pointer; flex-shrink: 0; transition: background .2s; }
+    .quick-run-btn:hover { background: #ff6b6b; }
     .status { font-size: 12px; padding: 8px 10px; border-radius: 6px; margin-bottom: 12px; display: none; }
     .status.show { display: block; }
     .status.ok { background: #0a3d0a; color: #4caf50; }
@@ -63,6 +65,7 @@
 
   <div class="quick-input-wrap">
     <input type="text" class="quick-input" id="quickInput" placeholder="输入指令，按 Enter 执行...">
+    <button class="quick-run-btn" id="quickRunBtn">▶</button>
   </div>
 
   <div id="runningIndicator" class="running">

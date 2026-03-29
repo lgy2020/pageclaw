@@ -70,7 +70,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'GET_STATUS') {
-    sendResponse({ running: !!getCurrentTask() });
+    sendResponse({ isRunning: !!getCurrentTask() });
     return true;
   }
   if (msg.type === 'GET_HISTORY') {
@@ -81,6 +81,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'CLEAR_HISTORY') {
     chrome.storage.local.set({ commandHistory: [] }).then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (msg.type === 'POST_START_TASK') {
+    if (!msg.command || !msg.command.trim()) {
+      sendResponse({ ok: false, error: 'Empty command' });
+      return true;
+    }
+    (async () => {
+      try {
+        const tab = await getActiveTab();
+        const tabId = tab.id;
+        await chrome.storage.local.get(['commandHistory']).then(d => {
+          const hist = d.commandHistory || [];
+          hist.unshift({ command: msg.command.trim(), timestamp: Date.now(), id: Date.now().toString(36) });
+          return chrome.storage.local.set({ commandHistory: hist.slice(0, 50) });
+        });
+        chrome.storage.session.set({ taskRunning: true });
+        const config = await chrome.storage.local.get(['apiKey', 'model', 'baseUrl']);
+        if (!config.apiKey) {
+          chrome.storage.session.set({ taskRunning: false });
+          sendResponse({ ok: false, error: 'No API key' });
+          chrome.runtime.openOptionsPage();
+          return;
+        }
+        const llm = new LLMClient(
+          config.apiKey,
+          config.model || 'google/gemini-2.0-flash',
+          config.baseUrl || 'https://openrouter.ai/api/v1'
+        );
+        sendResponse({ ok: true });
+        await executeAITask(msg.command.trim(), tabId, llm);
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err) });
+      }
+    })();
     return true;
   }
 });
@@ -150,6 +185,9 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
 // ============================================================
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Only handle messages from content scripts (sender.tab exists)
+  if (!sender.tab) return;
+
   if (msg.type === 'GET_HISTORY') {
     const tabId = sender.tab?.id;
     if (tabId) sendResponse({ history: history.getAll(tabId) });
@@ -187,7 +225,10 @@ async function testLLMConnection(config) {
 
 async function saveToHistory(instruction) {
   const d = await chrome.storage.local.get(['commandHistory']);
-  const h = (d.commandHistory || []).filter(x => x !== instruction);
-  h.unshift(instruction);
+  const h = (d.commandHistory || []).filter(x => {
+    if (typeof x === 'string') return x !== instruction;
+    return x.command !== instruction;
+  });
+  h.unshift({ command: instruction, timestamp: Date.now(), id: Date.now().toString(36) });
   await chrome.storage.local.set({ commandHistory: h.slice(0, 20) });
 }

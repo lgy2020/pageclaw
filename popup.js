@@ -152,6 +152,13 @@ function init() {
     }
   });
 
+  document.getElementById('quickRunBtn').addEventListener('click', function() {
+    var val = quickInput.value.trim();
+    if (val) {
+      startTask(val);
+    }
+  });
+
   document.getElementById('openSettings').addEventListener('click', function(e) {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
