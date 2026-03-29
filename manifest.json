@@ -3,6 +3,9 @@
   "name": "PageClaw",
   "version": "0.11.0",
   "description": "AI-powered browser automation. Type @ai in the address bar and tell the AI what to do. Supports Google, YouTube, Bilibili, Amazon, and more.",
+  "icons": {
+    "128": "icons/icon128.png"
+  },
   "permissions": ["activeTab", "scripting", "storage", "omnibox", "debugger", "webNavigation"],
   "host_permissions": ["<all_urls>"],
   "background": {
