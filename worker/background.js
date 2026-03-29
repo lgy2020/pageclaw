@@ -118,6 +118,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })();
     return true;
   }
+  if (msg.type === 'GENERATE_TEMPLATE_TITLE') {
+    if (!msg.command) {
+      sendResponse({ icon: '📋', title: '自定义', desc: msg.command || '' });
+      return true;
+    }
+    (async () => {
+      try {
+        const config = await chrome.storage.local.get(['apiKey', 'model', 'baseUrl']);
+        if (!config.apiKey) {
+          sendResponse({ icon: '📋', title: '自定义', desc: truncate(msg.command, 12) });
+          return;
+        }
+        const llm = new LLMClient(
+          config.apiKey,
+          config.model || 'google/gemini-2.0-flash',
+          config.baseUrl || 'https://openrouter.ai/api/v1'
+        );
+        const systemPrompt = '你是模板卡片生成器。根据用户的浏览器自动化指令，返回纯JSON：{"icon":"一个emoji","title":"4字标题","desc":"8字内描述"}。不要多余文字。';
+        const text = await llm.call(systemPrompt, msg.command);
+        const match = text.match(/\{[^}]+\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          sendResponse({
+            icon: parsed.icon || '📋',
+            title: (parsed.title || '自定义').substring(0, 6),
+            desc: (parsed.desc || '').substring(0, 10)
+          });
+        } else {
+          sendResponse({ icon: '📋', title: '自定义', desc: truncate(msg.command, 12) });
+        }
+      } catch (err) {
+        sendResponse({ icon: '📋', title: '自定义', desc: truncate(msg.command, 12) });
+      }
+    })();
+    return true;
+  }
 });
 
 // ============================================================
@@ -221,6 +257,10 @@ async function testLLMConnection(config) {
   } catch (e) {
     return { ok: false, error: e.message };
   }
+}
+
+function truncate(str, len) {
+  return str.length > len ? str.substring(0, len) + '...' : str;
 }
 
 async function saveToHistory(instruction) {
