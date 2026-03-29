@@ -4,76 +4,86 @@
   <meta charset="utf-8">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { width: 380px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f23; color: #eee; padding: 16px; }
-    h2 { font-size: 18px; margin-bottom: 4px; }
-    .subtitle { font-size: 12px; color: #888; margin-bottom: 16px; }
-    .setup-prompt { background: #1a1a2e; border: 1px solid #e94560; border-radius: 12px; padding: 16px; margin-bottom: 16px; text-align: center; }
-    .setup-prompt .icon { font-size: 32px; margin-bottom: 8px; }
-    .setup-prompt p { font-size: 13px; color: #ccc; margin-bottom: 12px; }
-    .hint { background: #1a1a2e; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-    .hint-title { font-size: 13px; font-weight: 600; color: #e94560; margin-bottom: 8px; }
-    .hint-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: #aaa; cursor: pointer; }
-    .hint-item:hover { color: #fff; }
-    .hint-item .emoji { font-size: 14px; flex-shrink: 0; }
+    body { width: 360px; max-height: 600px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f23; color: #eee; padding: 16px; }
+    :root {
+      --bg-primary: #0f0f23;
+      --bg-card: #1a1a2e;
+      --bg-hover: #252542;
+      --text-primary: #eeeeee;
+      --text-secondary: #888888;
+      --brand: #e94560;
+      --brand-hover: #ff6b6b;
+      --border: #2a2a4a;
+    }
+    .header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .header-icon { font-size: 24px; }
+    .header-title { font-size: 16px; font-weight: 600; }
+    .quick-input-wrap { margin-bottom: 12px; }
+    .quick-input { width: 100%; padding: 10px 12px; font-size: 13px; background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; color: #eee; outline: none; }
+    .quick-input:focus { border-color: #e94560; }
+    .quick-input::placeholder { color: #666; }
     .status { font-size: 12px; padding: 8px 10px; border-radius: 6px; margin-bottom: 12px; display: none; }
     .status.show { display: block; }
     .status.ok { background: #0a3d0a; color: #4caf50; }
     .status.warn { background: #3d3d0a; color: #ff9800; }
-    .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #222; }
-    .footer a { color: #888; text-decoration: none; font-size: 12px; }
-    .footer a:hover { color: #e94560; }
-    .running { background: #1a1a2e; border: 1px solid #e94560; border-radius: 10px; padding: 12px; margin-bottom: 12px; text-align: center; }
+    .running { background: #1a1a2e; border: 1px solid #e94560; border-radius: 10px; padding: 12px; margin-bottom: 12px; text-align: center; display: none; }
+    .running.show { display: block; }
     .running .spinner { width: 20px; height: 20px; border: 2px solid rgba(233,69,96,.3); border-top-color: #e94560; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 8px; }
-    @keyframes spin { to { transform: rotate(360deg) } }
-    .stop-btn { background: #e94560; color: white; border: none; padding: 6px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; margin-top: 8px; }
-    .stop-btn:hover { background: #c73e54; }
-    .history { margin-top: 12px; }
-    .history-title { font-size: 12px; color: #666; margin-bottom: 6px; }
-    .history-item { font-size: 11px; color: #888; padding: 3px 0; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .history-item:hover { color: #e94560; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .template-card { background: #1a1a2e; border-radius: 10px; padding: 12px; cursor: pointer; position: relative; transition: background .2s; }
+    .template-card:hover { background: #252542; }
+    .template-card:hover .start-btn { opacity: 1; }
+    .template-icon { font-size: 20px; margin-bottom: 6px; }
+    .template-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+    .template-desc { font-size: 11px; color: #888; }
+    .start-btn { position: absolute; top: 8px; right: 8px; background: #e94560; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; cursor: pointer; opacity: 0; transition: opacity .2s, background .2s; }
+    .start-btn:hover { background: #ff6b6b; }
+    .section-title { font-size: 12px; color: #888; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+    .history-list { margin-bottom: 16px; }
+    .history-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: #1a1a2e; border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+    .history-item:hover { background: #252542; }
+    .history-content { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+    .history-time { font-size: 10px; color: #666; margin-left: auto; margin-right: 8px; }
+    .history-btn { background: #e94560; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 10px; cursor: pointer; flex-shrink: 0; }
+    .history-btn:hover { background: #ff6b6b; }
+    .empty-state { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #2a2a4a; }
+    .footer a { color: #888; text-decoration: none; font-size: 12px; cursor: pointer; }
+    .footer a:hover { color: #e94560; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1a1a2e; color: #eee; padding: 8px 16px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    .toast.show { opacity: 1; }
   </style>
 </head>
 <body>
-  <h2>🐟 AI 浏览器助手</h2>
-  <p class="subtitle">说出你想做的事，AI 帮你执行</p>
-
-  <div id="setupPrompt" class="setup-prompt" style="display:none">
-    <div class="icon">🔑</div>
-    <p>请先配置 API Key 才能使用</p>
-    <button class="stop-btn" id="openSetup">打开设置</button>
+  <div class="header">
+    <span class="header-icon">🐟</span>
+    <span class="header-title">AI 浏览器助手</span>
   </div>
 
-  <div id="runningIndicator" class="running" style="display:none">
+  <div class="quick-input-wrap">
+    <input type="text" class="quick-input" id="quickInput" placeholder="输入指令，按 Enter 执行...">
+  </div>
+
+  <div id="runningIndicator" class="running">
     <div class="spinner"></div>
     <div style="font-size:13px">AI 正在执行...</div>
-    <button class="stop-btn" id="stopTask">⏹️ 取消</button>
-  </div>
-
-  <div id="usageHint" class="hint">
-    <div class="hint-title">💡 你可以这样说：</div>
-    <div class="hint-item" data-cmd="在 Google 上搜索最新的 AI 新闻"><span class="emoji">🔍</span> 搜索 Google 新闻</div>
-    <div class="hint-item" data-cmd="在 YouTube 上播放一个 Python 教程"><span class="emoji">📺</span> 播放 YouTube 视频</div>
-    <div class="hint-item" data-cmd="bilibili搜索机器学习播放第一个视频"><span class="emoji">🎬</span> 看 Bilibili 视频</div>
-    <div class="hint-item" data-cmd="在 Amazon 上搜索无线耳机"><span class="emoji">🛒</span> Amazon 购物</div>
-    <div class="hint-item" data-cmd="打开 Hacker News 看看今天有什么热门"><span class="emoji">📰</span> 阅读 Hacker News</div>
-    <div class="hint-item" data-cmd="在 Google 上比价 iPhone 16"><span class="emoji">💰</span> 比价</div>
-    <div class="hint-item" data-cmd="打开 GitHub"><span class="emoji">🌐</span> 打开网站</div>
-    <div class="hint-item" data-cmd="往下滚"><span class="emoji">📜</span> 滚动页面</div>
-    <div class="hint-item" data-cmd="点击第一个搜索结果"><span class="emoji">👆</span> 点击链接/按钮</div>
-    <div class="hint-item" data-cmd="这个页面讲了什么"><span class="emoji">📖</span> 读取页面内容</div>
   </div>
 
   <div id="statusEl" class="status"></div>
 
-  <div class="history" id="historySection" style="display:none">
-    <div class="history-title">最近的指令：</div>
-    <div id="historyList"></div>
-  </div>
+  <div class="template-grid" id="templateGrid"></div>
+
+  <div class="section-title">📜 最近任务</div>
+  <div class="history-list" id="historyList"></div>
+  <div class="empty-state" id="emptyState" style="display:none">暂无历史记录</div>
 
   <div class="footer">
-    <a href="#" id="openOptions">⚙️ 设置</a>
-    <a href="#" id="clearHistory">🗑️ 清除历史</a>
+    <a id="openSettings">⚙️ 设置</a>
+    <a id="clearHistory">🗑️ 清除历史</a>
   </div>
+
+  <div class="toast" id="toast">已复制</div>
 
   <script src="popup.js"></script>
 </body>
