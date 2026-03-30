@@ -2,9 +2,11 @@ import { LLMClient } from '../llm/client.js';
 import { executeAITask, getCurrentTask, stopCurrentTask, history } from '../core/engine.js';
 import { getActiveTab, agentCall, agentShowToast } from './tab-manager.js';
 import { sleep } from '../utils/sleep.js';
+import { ExperienceManager } from '../experience/manager.js';
 
 // Clear stale task flag on startup (in case of previous crash)
 chrome.storage.session.set({ taskRunning: false });
+try { ExperienceManager.init(); } catch(e) { console.log('[Experience] Init failed:', e); }
 
 // ============================================================
 // 1. Omnibox
@@ -246,6 +248,51 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // Clean up history when tab closes
 chrome.tabs.onRemoved.addListener((tabId) => {
   history.removeTab(tabId);
+});
+
+// ============================================================
+// v0.12: Evaluation retry/dismiss message handlers
+// ============================================================
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'EVAL_RETRY') {
+    var tabId = msg.tabId || (sender.tab && sender.tab.id);
+    if (!tabId) { sendResponse({ok:false}); return true; }
+    (async () => {
+      try {
+        await agentShowToast(tabId, '\u{1F504} 基于评估经验重新规划...');
+        var config = await chrome.storage.local.get(['apiKey', 'model', 'baseUrl']);
+        var llm = new LLMClient(
+          config.apiKey,
+          config.model || 'google/gemini-2.0-flash',
+          config.baseUrl || 'https://openrouter.ai/api/v1'
+        );
+        var failContext = {
+          failedStep: msg.rootCause || '评估不达标',
+          failureType: 'quality_check',
+          reason: msg.suggestions || '执行结果质量不足',
+          currentUrl: msg.currentUrl || '',
+          completedSteps: []
+        };
+        var newPlan = await llm.replan(msg.instruction || '', {url: msg.currentUrl || '', title: '', site: 'unknown'}, failContext, [], '');
+        if (newPlan && newPlan.length > 0) {
+          await agentShowToast(tabId, '\u2705 已生成优化方案，共 ' + newPlan.length + ' 步');
+        }
+        sendResponse({ok: true});
+      } catch (err) {
+        console.log('[Eval] Retry failed:', err);
+        await agentShowToast(tabId, '\u274C 重试失败: ' + err.message).catch(()=>{});
+        sendResponse({ok: false, error: err.message});
+      }
+    })();
+    return true;
+  }
+  if (msg.type === 'EVAL_DISMISS') {
+    var tabId2 = msg.tabId || (sender.tab && sender.tab.id);
+    if (tabId2) agentCall(tabId2, 'hideOverlay').catch(()=>{});
+    sendResponse({ok: true});
+    return true;
+  }
 });
 
 async function testLLMConnection(config) {

@@ -1,3 +1,5 @@
+import { ExperienceManager } from '../experience/manager.js';
+
 export class LLMClient {
   constructor(apiKey, model, baseUrl) {
     this.apiKey = apiKey;
@@ -51,7 +53,9 @@ export class LLMClient {
     var historyCtx = historyText
       ? '\nPrevious conversation context:\n' + historyText + '\n\nUse this to understand references like first result, go back, click that button, etc.\n\n'
       : '';
-    var prompt = historyCtx + buildPlanPrompt(instruction, pageCtx);
+    var experiencePrompt = '';
+    try { var similar = await ExperienceManager.findSimilar(instruction, pageInfo, 3); if(similar && similar.length > 0) { experiencePrompt = ExperienceManager.buildExperiencePrompt(similar); } } catch(e) { console.log('[Experience] Retrieval failed:', e); }
+    var prompt = historyCtx + buildPlanPrompt(instruction, pageCtx) + experiencePrompt;
     var raw = await this.call(
       'You are a browser automation assistant. Output ONLY a JSON array. No markdown. Step types: navigate, type, click, pressKey, wait, scroll, scrollTo, scrollMultiple, fillForm, analyze, play_video, getText, getPrices, observe.',
       prompt
@@ -119,6 +123,9 @@ Output JSON: {"type":"click","target":"description","description":"..."}`;
       ? '\nPrevious conversation context:\n' + historyText + '\n\n'
       : '';
 
+    var experiencePrompt = '';
+    try { var similar = await ExperienceManager.findSimilar(instruction, pageInfo, 3); if(similar && similar.length > 0) { var failed = similar.filter(function(s){return s.experience && s.experience.evaluation && !s.experience.evaluation.success;}); var toUse = failed.length > 0 ? failed : similar; experiencePrompt = ExperienceManager.buildExperiencePrompt(toUse); } } catch(e) { console.log('[Experience] Retrieval failed:', e); }
+
     var prompt = `${historyCtx}${pageCtx}
 Original instruction: "${instruction}"
 
@@ -140,7 +147,7 @@ Output a JSON array of steps to replace the remaining steps. Use the same step t
 Output ONLY a JSON array. No markdown.`;
 
     var raw = await this.call(
-      'You are a browser automation assistant replanning after a failure. Output ONLY a JSON array of steps.',
+      'You are a browser automation assistant replanning after a failure. Output ONLY a JSON array of steps.' + experiencePrompt,
       prompt
     );
     return this.parseJSON(raw);

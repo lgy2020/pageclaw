@@ -3,6 +3,7 @@ import { injectPageAgent, agentCall, agentShowToast } from '../worker/tab-manage
 import { executeStep, executeStepWithRetry } from './executor.js';
 import { ConversationHistory } from './history.js';
 import { classifyError, getSuggestion, RecoveryError } from './recovery.js';
+import { ExperienceManager, ExperienceEvaluator } from '../experience/manager.js';
 
 var currentTask = null;
 
@@ -57,6 +58,9 @@ export async function executeAITask(instruction, tabId, llm) {
   const abort = new AbortController();
   currentTask = { abort, tabId };
   chrome.storage.session.set({ taskRunning: true });
+
+  var executionTrace = [];
+  var taskStartTime = Date.now();
 
   try {
     // Show immediate visual feedback before heavy injection
@@ -134,6 +138,7 @@ export async function executeAITask(instruction, tabId, llm) {
 
       try {
         var result = await executeStepWithRetry(step, tabId, llm, 3);
+        executionTrace.push({index:i, type:step.type, description:step.description, params:{target:step.target,value:step.value,url:step.url,key:step.key}, result:result?{success:true,data:JSON.parse(JSON.stringify(result||{}))}:{success:true}, timestamp:Date.now()});
       } catch (err) {
         var failureType = classifyError(err);
         // Show failure summary card
@@ -270,6 +275,74 @@ export async function executeAITask(instruction, tabId, llm) {
       await agentShowToast(tabId, '\u{1F389} \u5B8C\u6210\uFF01');
     }
 
+    // v0.12: Show evaluation UI flow (single LLM call for both UI + storage)
+    try {
+      await sleep(2000); // Wait for Done display
+
+      // Try new UI first, fallback to updateStatus if page-bundle.js is old
+      var evalUiReady = await agentCall(tabId, 'showEvalLoading');
+      if (evalUiReady === null) {
+        // Fallback: use existing updateStatus
+        await agentCall(tabId, 'updateStatus', '\u{1F50D} 分析执行结果中...', 0, 0);
+        await agentCall(tabId, 'setGlowState', 'thinking');
+      }
+
+      var evalInput = {
+        instruction: instruction,
+        steps: executionTrace,
+        finalPageState: { url: pageInfo?.url || '', title: pageInfo?.title || '', contentSummary: pageInfo?.text || '' },
+        executionTimeMs: Date.now() - taskStartTime
+      };
+      var evalPrompt = ExperienceEvaluator.buildEvaluationPrompt(evalInput);
+      var evalSystemPrompt = 'You are a task execution quality evaluator. Analyze the browser automation task execution and provide objective assessment. Output ONLY valid JSON.';
+      var evalRaw = await llm.call(evalSystemPrompt, evalPrompt);
+      var evalResult = ExperienceEvaluator.parseEvaluationResult(evalRaw);
+      if (!evalResult) evalResult = { success: true, score: 50, root_cause: '评估结果解析失败', suggestions: '' };
+
+      // Show result in UI
+      var evalResultShown = await agentCall(tabId, 'showEvalResult', evalResult);
+      if (evalResultShown === null) {
+        // Fallback: use updateStatus + setGlowState
+        var emoji = evalResult.score >= 70 ? '\u2705' : (evalResult.score >= 50 ? '\u26A0\uFE0F' : '\u274C');
+        var resultText = emoji + ' 评分: ' + evalResult.score + '/100';
+        if (evalResult.root_cause) resultText += ' | ' + evalResult.root_cause;
+        await agentCall(tabId, 'updateStatus', resultText, evalResult.score, 100);
+        await agentCall(tabId, 'setGlowState', evalResult.score >= 70 ? 'success' : 'error');
+      }
+
+      // Store experience (single eval, no duplicate LLM call)
+      try {
+        var tc = {instruction:instruction, steps:executionTrace, pageInfo:pageInfo, failedSteps:failedSteps, durationMs:Date.now()-taskStartTime};
+        await ExperienceManager.storeExperience(tc, evalResult);
+      } catch(e) { console.log('[Experience] Store failed:', e); }
+
+      if (evalResult.score < 70) {
+        // Store context for retry button (page-side animation.js will read and send with message)
+        try {
+          await agentCall(tabId, 'setEvalContext', JSON.stringify({
+            instruction: instruction,
+            currentUrl: pageInfo?.url || '',
+            rootCause: evalResult.root_cause || '',
+            suggestions: evalResult.suggestions || ''
+          }));
+        } catch(e) {}
+        // Don't hide overlay — wait for user action via message to SW
+        // Fallback: if no new UI, auto-dismiss after 10s
+        if (evalResultShown === null) {
+          await sleep(10000);
+          await agentCall(tabId, 'hideOverlay');
+        }
+      } else {
+        // Passed: auto-hide after 5s
+        await sleep(5000);
+        await agentCall(tabId, 'hideOverlay');
+      }
+    } catch (evalErr) {
+      console.log('[Experience] Eval UI flow failed:', evalErr);
+      // Silent fallback: just hide overlay
+      try { await agentCall(tabId, 'hideOverlay'); } catch(e) {}
+    }
+
     // Store turn in conversation history
     try {
       var pageSnap = pageInfo ? { url: pageInfo.url || '', title: pageInfo.title || '' } : { url: '', title: '' };
@@ -283,9 +356,8 @@ export async function executeAITask(instruction, tabId, llm) {
       await agentShowToast(tabId, `\u274C ${err.message}`);
     }
   } finally {
-    try {
-      await agentCall(currentTask?.tabId || tabId, 'hideOverlay');
-    } catch (e) {}
+    // v0.12: Don't auto-hide in finally — eval flow manages overlay lifecycle
+    // (eval flow handles: showEvalLoading → eval → showEvalResult → hide/retry)
     currentTask = null;
     chrome.storage.session.set({ taskRunning: false });
   }
