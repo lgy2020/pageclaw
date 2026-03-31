@@ -572,7 +572,22 @@ if (card && current > 0) {
         retryBtn.textContent = '\u{1F504} 重试优化';
         retryBtn.style.cssText = 'pointer-events:auto;background:rgba(99,102,241,0.3);border:1px solid rgba(99,102,241,0.5);color:#fff;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;';
         retryBtn.addEventListener('click', function() {
-          try { chrome.runtime.sendMessage({type:'EVAL_RETRY', rootCause:result.root_cause, suggestions:result.suggestions}); } catch(e) {}
+          try {
+            var ctx = {};
+            if (window.__aiAgent && typeof window.__aiAgent.getEvalContext === 'function') {
+              var ctxJson = window.__aiAgent.getEvalContext();
+              if (ctxJson) {
+                try { ctx = JSON.parse(ctxJson); } catch(e) {}
+              }
+            }
+            chrome.runtime.sendMessage({
+              type: 'EVAL_RETRY',
+              rootCause: result.root_cause,
+              suggestions: result.suggestions,
+              instruction: ctx.instruction || '',
+              currentUrl: ctx.currentUrl || ''
+            });
+          } catch(e) {}
         });
 
         var dismissBtn = document.createElement('button');
