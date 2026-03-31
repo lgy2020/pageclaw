@@ -148,7 +148,7 @@ function renderHistory() {
     return;
   }
   emptyState.style.display = 'none';
-  var recent = state.history.slice(0, 5);
+  var recent = state.history.slice(0, 3);
   recent.forEach(function(item) {
     var el = document.createElement('div');
     el.className = 'history-item';
