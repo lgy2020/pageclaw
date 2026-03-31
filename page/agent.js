@@ -51,13 +51,6 @@
     showReplanning: animSystem.showReplanning.bind(animSystem),
     _removeFailureSummary: animSystem._removeFailureSummary.bind(animSystem),
 
-    // v0.12: Evaluation UI
-    showEvalLoading: animSystem.showEvalLoading.bind(animSystem),
-    showEvalResult: animSystem.showEvalResult.bind(animSystem),
-    hideEvalUI: animSystem.hideEvalUI.bind(animSystem),
-    setEvalContext: function(ctxJson) { sessionStorage.setItem('__pc_eval_ctx', ctxJson); },
-    getEvalContext: function() { return sessionStorage.getItem('__pc_eval_ctx'); },
-
     // Utilities (from constants.js or page-info.js)
     _getElement: pageInfo._getElement.bind(pageInfo),
     dismissPopups: pageInfo.dismissPopups.bind(pageInfo),

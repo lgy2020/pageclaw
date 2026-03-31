@@ -1511,109 +1511,6 @@ if (card && current > 0) {
     this._removeScreenBorder();
     this._removeFailureSummary();
     if (this._animCursor) { this._animCursor.remove(); this._animCursor = null; }
-  },
-
-  // ==================== v0.12: Evaluation UI ====================
-
-  showEvalLoading() {
-    if (!this._animOverlay) this.showOverlay();
-    var card = document.getElementById('pc-card');
-    var title = document.getElementById('pc-title');
-    var step = document.getElementById('pc-step');
-    var bar = document.getElementById('pc-bar');
-    var counter = document.getElementById('pc-counter');
-    var stepsList = this._animOverlay.querySelector('#pc-steps-list');
-    if (card) card.className = 'pc-card thinking';
-    if (title) title.textContent = '🔍 分析执行结果中...';
-    if (step) step.textContent = 'LLM 正在评估任务执行质量';
-    if (bar) bar.style.width = '100%';
-    if (bar) bar.style.transition = 'width 3s linear';
-    if (counter) counter.textContent = '';
-    if (stepsList) stepsList.innerHTML = '';
-    this._overlayHidden = false;
-  },
-
-  showEvalResult(result) {
-    if (!this._animOverlay) this.showOverlay();
-    var card = document.getElementById('pc-card');
-    var title = document.getElementById('pc-title');
-    var step = document.getElementById('pc-step');
-    var bar = document.getElementById('pc-bar');
-    var counter = document.getElementById('pc-counter');
-    var stepsList = this._animOverlay.querySelector('#pc-steps-list');
-
-    var score = result.score || 0;
-    var passed = score >= 70;
-
-    // Card state
-    if (card) card.className = 'pc-card ' + (passed ? 'success' : 'error');
-
-    // Title: score
-    if (title) {
-      var emoji = score >= 70 ? '✅' : (score >= 50 ? '⚠️' : '❌');
-      title.textContent = emoji + ' 执行评分: ' + score + '/100';
-      title.style.fontSize = '18px';
-    }
-
-    // Progress bar: reflect score
-    if (bar) {
-      bar.style.transition = 'width 0.5s ease';
-      bar.style.width = score + '%';
-      if (score >= 70) {
-        bar.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
-      } else if (score >= 50) {
-        bar.style.background = 'linear-gradient(90deg, #eab308, #facc15)';
-      } else {
-        bar.style.background = 'linear-gradient(90deg, #dc2626, #ef4444)';
-      }
-    }
-
-    // Step area: root cause + suggestions
-    if (step) {
-      var parts = [];
-      if (result.root_cause) parts.push('📋 ' + result.root_cause);
-      if (result.suggestions) parts.push('💡 ' + result.suggestions);
-      step.textContent = parts.join('\n') || (passed ? '任务执行质量良好' : '执行结果不理想');
-      step.style.whiteSpace = 'pre-line';
-      step.style.maxHeight = '120px';
-      step.style.overflowY = 'auto';
-    }
-
-    if (counter) counter.textContent = '';
-
-    // Steps list area: retry buttons (if not passed)
-    if (stepsList) {
-      stepsList.innerHTML = '';
-      if (!passed) {
-        stepsList.style.pointerEvents = 'auto';
-        var btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
-
-        var retryBtn = document.createElement('button');
-        retryBtn.textContent = '\u{1F504} 重试优化';
-        retryBtn.style.cssText = 'pointer-events:auto;background:rgba(99,102,241,0.3);border:1px solid rgba(99,102,241,0.5);color:#fff;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;';
-        retryBtn.addEventListener('click', function() {
-          try { chrome.runtime.sendMessage({type:'EVAL_RETRY', rootCause:result.root_cause, suggestions:result.suggestions}); } catch(e) {}
-        });
-
-        var dismissBtn = document.createElement('button');
-        dismissBtn.textContent = '知道了';
-        dismissBtn.style.cssText = 'pointer-events:auto;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#ccc;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;';
-        dismissBtn.addEventListener('click', function() {
-          try { chrome.runtime.sendMessage({type:'EVAL_DISMISS'}); } catch(e) {}
-        });
-
-        btnRow.appendChild(retryBtn);
-        btnRow.appendChild(dismissBtn);
-        stepsList.appendChild(btnRow);
-      }
-    }
-
-    this._overlayHidden = false;
-  },
-
-  hideEvalUI() {
-    this.hideOverlay();
   }
   };
 // page/agent.js — PageClaw entry point, wires all modules into window.__aiAgent
@@ -1668,13 +1565,6 @@ if (card && current > 0) {
     showFailureSummary: animSystem.showFailureSummary.bind(animSystem),
     showReplanning: animSystem.showReplanning.bind(animSystem),
     _removeFailureSummary: animSystem._removeFailureSummary.bind(animSystem),
-
-    // v0.12: Evaluation UI
-    showEvalLoading: animSystem.showEvalLoading.bind(animSystem),
-    showEvalResult: animSystem.showEvalResult.bind(animSystem),
-    hideEvalUI: animSystem.hideEvalUI.bind(animSystem),
-    setEvalContext: function(ctxJson) { sessionStorage.setItem('__pc_eval_ctx', ctxJson); },
-    getEvalContext: function() { return sessionStorage.getItem('__pc_eval_ctx'); },
 
     // Utilities (from constants.js or page-info.js)
     _getElement: pageInfo._getElement.bind(pageInfo),

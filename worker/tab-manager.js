@@ -163,13 +163,10 @@ export async function agentShowToast(tabId, text) {
     await agentCall(tabId, 'updateStatus', desc, cur, tot);
     await agentCall(tabId, 'setGlowState', state);
 
-    if (state === 'success') {
-      // v0.12: Don't auto-hide on success — engine.js eval flow handles lifecycle
-      // (Done → showEvalLoading → eval → showEvalResult → hide/retry)
-    } else if (state === 'error') {
+    if (state === 'success' || state === 'error') {
       setTimeout(async () => {
         try { await agentCall(tabId, 'hideOverlay'); } catch (e) {}
-      }, 4000);
+      }, state === 'success' ? 2000 : 4000);
     }
   } catch (e) {}
 }
