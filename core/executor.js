@@ -28,6 +28,8 @@ export async function executeStepWithRetry(step, tabId, llm, maxRetries) {
 export async function executeStep(step, tabId, llm) {
   switch (step.type) {
     case 'navigate':
+      // Clear old page UI before navigation to prevent ghost overlays
+      try { await agentCall(tabId, 'hideOverlay'); } catch (e) {}
       await chrome.tabs.update(tabId, { url: step.url });
       await waitForDOMReady(tabId, 8000);
       await injectPageAgent(tabId);
@@ -107,6 +109,8 @@ async function executeType(step, tabId, llm) {
     await sleep(300);
     await typeViaDebugger(tabId, step.value);
     await sleep(500);
+    // Clear UI before search button click that may cause navigation
+    try { await agentCall(tabId, 'hideOverlay'); } catch (e) {}
     const newTabId = await detectNewTab(tabId, async () => {
       await agentCall(tabId, 'clickSearchButton');
     });
@@ -146,6 +150,8 @@ async function executeClick(step, tabId, llm) {
   if (step.target && /\u7b2c\u4e00\u4e2a\u89c6\u9891|first video|\u9996\u4e2a\u89c6\u9891/.test(step.target)) {
     const r = await agentCall(tabId, 'clickFirstBiliVideo');
     if (r?.success && r.url && /\/video\/BV[a-zA-Z0-9]{10}/.test(r.url)) {
+      // Clear UI before navigation
+      try { await agentCall(tabId, 'hideOverlay'); } catch (e) {}
       const nt = await detectNewTab(tabId, async () => {
         await chrome.tabs.update(tabId, { url: r.url });
       });
@@ -161,6 +167,8 @@ async function executeClick(step, tabId, llm) {
     // YouTube fallback
     const yt = await agentCall(tabId, 'clickFirstYouTubeVideo');
     if (yt?.success && yt.url) {
+      // Clear UI before navigation
+      try { await agentCall(tabId, 'hideOverlay'); } catch (e) {}
       const nt = await detectNewTab(tabId, async () => {
         await chrome.tabs.update(tabId, { url: yt.url });
       });
@@ -190,6 +198,8 @@ async function executeClick(step, tabId, llm) {
   if (idx === -1) throw new RecoveryError('element-not-found', `Cannot find element: ${step.target}`);
 
   if (clickAction) {
+    // Clear UI before click action that may cause navigation
+    try { await agentCall(tabId, 'hideOverlay'); } catch (e) {}
     const nt = await detectNewTab(tabId, clickAction);
     if (nt !== null) {
       await injectPageAgent(nt);
@@ -208,6 +218,8 @@ async function executeAnalyze(step, tabId, llm) {
   if (/first|\u7b2c\u4e00\u4e2a|\u9996\u4e2a/.test(step.goal || step.description)) {
     const idx = await agentCall(tabId, 'clickFirstResult');
     if (idx !== -1) {
+      // Clear UI before click that may cause navigation
+      try { await agentCall(tabId, 'hideOverlay'); } catch (e) {}
       const nt = await detectNewTab(tabId, () => agentCall(tabId, 'click', idx));
       if (nt !== null) {
         await injectPageAgent(nt);

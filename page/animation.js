@@ -9,6 +9,7 @@ var animSystem = {
   _screenBorder: null,
   _highlightContainer: null, _highlightEls: [], _highlightLabels: [], _indexedEls: [],
   _overlayHidden: false,
+  _beforeUnloadHandler: null,
   _HL_COLORS: ['#FF0000','#00CC00','#0066FF','#FF8800','#8800CC','#008888','#FF3399','#4400CC','#FF4400','#228844','#CC0033','#336699'],
   
   _injectAnimCSS() {
@@ -301,13 +302,23 @@ var animSystem = {
     this._setScreenBorderState('active');
     this.highlightElements();
     this._createCursor();
+    
+    // Register beforeunload handler to clear UI on page navigation
+    if (!this._beforeUnloadHandler) {
+      var self = this;
+      this._beforeUnloadHandler = function() {
+        self._clearAllElements();
+      };
+      window.addEventListener('beforeunload', this._beforeUnloadHandler);
+    }
+    
     if (this._animOverlay) return;
     var widget = document.createElement('div');
     widget.id = 'pc-status';
     widget.setAttribute('data-pageclaw-ignore', 'true');
     widget.innerHTML = '<div class="pc-card executing" id="pc-card"><div class="pc-card-title" id="pc-title">PageClaw</div><div class="pc-card-step" id="pc-step">Starting...</div><div class="pc-card-progress"><div class="pc-card-progress-bar" id="pc-bar" style="width:0%"></div></div><div class="pc-card-counter" id="pc-counter"></div><div class="pc-steps-list" id="pc-steps-list"></div></div>';
     document.body.appendChild(widget);
-this._animOverlay = widget;
+    this._animOverlay = widget;
     this._stepsList = widget.querySelector('#pc-steps-list');
   },
 
@@ -477,8 +488,28 @@ if (card && current > 0) {
     this._setScreenBorderState(state);
   },
   
+  _clearAllElements() {
+    // Direct DOM cleanup without async - safe for beforeunload
+    if (this._highlightContainer) { this._highlightContainer.remove(); this._highlightContainer = null; }
+    this._highlightEls = [];
+    this._highlightLabels = [];
+    this._indexedEls = [];
+    if (this._screenBorder) { this._screenBorder.remove(); this._screenBorder = null; }
+    if (this._animOverlay) { this._animOverlay.remove(); this._animOverlay = null; }
+    this._stepsList = null;
+    if (this._animCursor) { this._animCursor.remove(); this._animCursor = null; }
+    if (this._failureSummary) { this._failureSummary.remove(); this._failureSummary = null; }
+  },
+  
   hideOverlay() {
     this._overlayHidden = true;
+    
+    // Remove beforeunload handler
+    if (this._beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this._beforeUnloadHandler);
+      this._beforeUnloadHandler = null;
+    }
+    
     if (this._animOverlay) {
       this._animOverlay.classList.add('hiding');
       var el = this._animOverlay;
@@ -487,6 +518,8 @@ if (card && current > 0) {
       setTimeout(function() { if (el) el.remove(); }, 300);
     }
     this._clearHighlights();
+    // Also clear DOM engine highlights
+    if (typeof domEngine !== 'undefined' && domEngine._clearHighlights) domEngine._clearHighlights();
     this._removeScreenBorder();
     this._removeFailureSummary();
     if (this._animCursor) { this._animCursor.remove(); this._animCursor = null; }
