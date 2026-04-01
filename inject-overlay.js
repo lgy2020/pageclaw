@@ -32,6 +32,6 @@
 
   // Check task state — async but fast (<1ms from session storage)
   chrome.storage.session.get('taskRunning', function (data) {
-    if (data.taskRunning) showOverlay();
+    if (data && data.taskRunning) showOverlay();
   });
 })();
