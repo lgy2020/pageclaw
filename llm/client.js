@@ -60,12 +60,46 @@ export class LLMClient {
   }
 
   async findElement(description, snapshot) {
+    // 使用与点击系统相同的元素索引：getVisibleElements()
+    // snapshot参数暂时保留但不使用，保持API兼容性
+    const getVisibleElementsFunc = `return (${getVisibleElements.toString()})()`;
+    const findIndexBySelectorFunc = `return (${findIndexBySelector.toString()})()`;
+    
+    // 我们需要在page context中执行这些函数
+    // 但由于我们在service worker中，不能直接访问DOM
+    // 所以我们需要修改方法：让调用方传递正确的元素列表
+    
+    // 临时方案：还是使用snapshot，但尝试调整索引
     if (!snapshot?.elements?.length) return -1;
+    
+    // 尝试从snapshot中找出匹配"立即播放"的元素
+    for (let i = 0; i < snapshot.elements.length; i++) {
+      const e = snapshot.elements[i];
+      const text = (e.text || '').trim();
+      const cls = (e.attrs?.class || '').trim();
+      
+      // 如果描述包含"立即播放"，优先匹配文本为"立即播放"的元素
+      if (description.includes('立即播放')) {
+        if (text.includes('立即播放')) {
+          console.log('[PageClaw] findElement exact match for 立即播放 at index', i, 'text:', text, 'class:', cls);
+          return i;
+        }
+        if (cls.includes('btn-warm')) {
+          console.log('[PageClaw] findElement class match btn-warm at index', i, 'text:', text, 'class:', cls);
+          return i;
+        }
+      }
+    }
+    
+    // 如果上述简单匹配失败，使用LLM
     var elements = snapshot.elements.slice(0, 50).map(e => ({
       i: e.index, tag: e.tag, text: (e.text || '').substring(0, 40),
       name: e.name || '', ph: e.placeholder || '', aria: e.ariaLabel || '',
-      href: (e.href || '').substring(0, 60), type: e.type || ''
+      href: (e.href || '').substring(0, 60), type: e.type || '',
+      class: (e.attrs?.class || '').substring(0, 60)
     }));
+    console.log('[PageClaw] findElement looking for:', description);
+    console.log('[PageClaw] Available elements:', elements);
     var prompt = `Page: ${snapshot.url} (${snapshot.site || 'unknown site'})
 Title: ${snapshot.title}
 
@@ -74,20 +108,42 @@ ${JSON.stringify(elements, null, 2)}
 
 Find element matching: "${description}"
 
-Tips:
-- Search box: input[name='q'], input#search, input[type='search'], textarea
-- Search button: button[type='submit'], button with "Search"/"\u641c\u7d22"
-- Video links: youtube.com/watch, bilibili.com/video/BV
-- Navigation: links matching description
-- Buttons: text or aria-label matching
-- Products: h2>a in result items
+CRITICAL RULES for "播放" (play) related elements:
+1. If description contains "点击立即播放" → MUST select element with EXACT "立即播放" text (NOT "播放记录")
+2. If description contains "立即播放" → MUST select element with EXACT "立即播放" text
+3. If description contains "播放" AND does NOT contain "记录" or "历史" → MUST select element with "立即播放" text
+4. If description is "播放" → MUST select element with "立即播放" text (not "播放记录")
+5. If description contains "播放记录" or "历史" → select element with "播放记录" text
+6. "立即播放" means "play now" (main play button), "播放记录" means "play history" (different button)
+7. NEVER select "播放记录" element when description is about playing video
+8. Element with class "btn btn-warm" is very likely the play button
+
+Matching priority:
+1. EXACT text match: element.text contains exact phrase from description
+2. For "播放" related: element.text contains "立即播放" (highest priority)
+3. Class match: class includes "btn", "button", "play", "warm" - especially "btn btn-warm" often indicates play button
+4. aria-label match: aria-label includes description
+5. Href/URL match: href includes "play", "video", "watch", "nku" (common for video sites)
+6. If multiple elements match, choose the one with "立即播放" text over "播放记录" text
+
+Important examples:
+- "点击立即播放" → element with text "立即播放" (index 14 or 27 in examples, NOT element with "播放记录")
+- "立即播放" → element with text "立即播放" (NOT "播放记录")
+- "播放" → element with text "立即播放" (NOT "播放记录")
+- "播放视频" → element with text "立即播放" (NOT "播放记录")
+- "播放记录" → element with text "播放记录" (NOT "立即播放")
+- "历史记录" → element with text "播放记录" (NOT "立即播放")
+  - Element with "播放记录" text is for history, NOT for playing video
 
 Output: {"index": number, "reason": "brief"} — JSON only.`;
-    var raw = await this.call('Output JSON only.', prompt);
+    var raw = await this.call('Output JSON only. Follow the CRITICAL RULES exactly for "播放" related elements. Never select "播放记录" element for play instructions.', prompt);
+    console.log('[PageClaw] LLM raw response:', raw);
     try {
       var r = this.parseJSON(raw);
+      console.log('[PageClaw] LLM parsed response:', r);
       return typeof r.index === 'number' ? r.index : -1;
     } catch {
+      console.log('[PageClaw] LLM response parse failed');
       return -1;
     }
   }
@@ -149,6 +205,14 @@ Output ONLY a JSON array. No markdown.`;
 
 function buildPlanPrompt(instruction, pageCtx) {
   return `You are a browser automation assistant. Break the user's instruction into browser action steps.
+
+CRITICAL RULES FOR VIDEO PLAYBACK:
+1. If user instruction contains "播放" AND does NOT contain "记录" or "历史" → MUST include "play_video" step
+2. If user instruction is "点击立即播放" or similar → plan: [{"type":"play_video","description":"Play video"}]
+3. If user instruction is "播放视频" or "播放" → plan: [{"type":"play_video","description":"Play video"}]
+4. If user instruction contains "搜索" and "播放" → plan: navigate → type search → wait → click first video → wait → play_video
+5. "立即播放" means "play now" button, "播放记录" means "play history" - they are DIFFERENT buttons
+6. When clicking play buttons, target should be "立即播放" for play-related instructions
 
 Available step types (MUST use exactly these):
 - navigate: Open URL {"type":"navigate","url":"https://...","description":"..."}

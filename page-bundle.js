@@ -308,8 +308,13 @@ var domEngine = {
   
     const score = this._scoreInteractive(el);
     const scrollData = this._getScrollData(el);
-    const text = (el.childNodes.length === 1 && el.firstChild.nodeType === 3)
-      ? el.textContent.trim().substring(0, 120) : '';
+    let text = '';
+    if (el.childNodes.length === 1 && el.firstChild.nodeType === 3) {
+      text = el.textContent.trim().substring(0, 120);
+    } else if (el.textContent) {
+      // Extract text content even if there are nested elements
+      text = el.textContent.trim().replace(/\s+/g, ' ').substring(0, 120);
+    }
   
     const result = {
       tag,
@@ -424,25 +429,36 @@ _clearHighlights() {
     this._rectCache = new WeakMap();
     this._styleCache = new WeakMap();
   
-    // Extract DOM tree
-    const tree = this._extractElement(document.body, 0, maxDepth);
-  
-    // Flatten to interactive elements
-    const flat = [];
-    this._flattenTree(tree, flat);
-  
-    // Build output (remove _el references)
-    const elements = flat.map((item, i) => {
-      const coords = this._getCoords(item._el);
+    // Get visible elements using the same function that click() uses
+    const visibleElements = getVisibleElements();
+    
+    // Build snapshot elements with the same order as visibleElements
+    const elements = visibleElements.map((el, i) => {
+      const tag = el.tagName.toLowerCase();
+      const text = (el.textContent || '').trim().substring(0, 120);
+      const attrs = this._getAttrs(el);
+      const coords = this._getCoords(el);
+      const scrollable = !!this._getScrollData(el);
+      
       return {
         index: i,
-        tag: item.tag,
-        text: item.text,
-        attrs: item.attrs,
+        tag,
+        text,
+        attrs,
         coords,
-        scrollable: !!item.scrollable,
+        scrollable,
       };
     });
+    
+    // Prepare flat array for highlighting (keep _el reference)
+    const flat = visibleElements.map((el, i) => ({
+      tag: el.tagName.toLowerCase(),
+      text: (el.textContent || '').trim().substring(0, 120),
+      attrs: this._getAttrs(el),
+      score: this._scoreInteractive(el),
+      scrollable: this._getScrollData(el),
+      _el: el,
+    }));
   
     // Highlight if requested
     if (doHighlight) this._highlightElements(flat);
@@ -533,7 +549,18 @@ var elementOps = {
   // ==================== 11. Element Operations ====================
   click(index) {
     const el = pageInfo._getElement(index);
-    if (!el) return { success: false, error: 'Element not found: ' + index };
+    if (!el) {
+      console.log('[PageClaw] Click failed: element not found at index', index);
+      return { success: false, error: 'Element not found: ' + index };
+    }
+    
+    // Log detailed element info before clicking
+    const tagName = el.tagName.toLowerCase();
+    const id = el.id ? '#' + el.id : '';
+    const className = el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').join('.') : '';
+    const text = (el.textContent || '').trim().substring(0, 100);
+    const href = el.href ? el.href.substring(0, 100) : '';
+    console.log('[PageClaw] Clicking element', index, ':', tagName + id + className, 'text="' + text + '"', href ? 'href="' + href + '"' : '', 'outerHTML:', el.outerHTML.substring(0, 200));
   
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     const rect = el.getBoundingClientRect();
@@ -547,6 +574,8 @@ var elementOps = {
     el.focus();
     el.dispatchEvent(new MouseEvent('mouseup', opts));
     el.dispatchEvent(new MouseEvent('click', opts));
+    
+    console.log('[PageClaw] Click completed for element', index);
   
     return { success: true, tag: el.tagName, text: (el.textContent || '').substring(0, 50).trim() };
   },
@@ -906,7 +935,7 @@ var pageInfo = {
     document.querySelectorAll('video').forEach((v, i) => {
       videos.push({ type: 'native', index: i, src: v.src || v.currentSrc, paused: v.paused, duration: v.duration || 0 });
     });
-  
+
     const playButtons = [];
     const selectors = [
       '.ytp-large-play-button', '.ytp-play-button',
@@ -923,38 +952,96 @@ var pageInfo = {
         }
       });
     });
-  
+
     return { videos, playButtons, hasVideo: videos.length > 0 };
   },
   
-  playVideo() {
-    const video = document.querySelector('video');
-    if (video && !video.paused) return { success: true, method: 'already_playing' };
-  
-    if (video && video.paused) {
-      video.muted = true;
-      video.play().catch(() => {});
-    }
-  
-    const selectors = [
-      '.ytp-large-play-button', '.ytp-play-button',
-      '.bpx-player-ctrl-play', '.bilibili-player-video-btn-start',
-      '.bili-player-video-btn-start', '.video-play-button',
-      'button[aria-label*="播放"]', 'button[aria-label*="Play"]',
-      '.prism-big-play-btn', '.ytp-cued-thumbnail-overlay'
-    ];
-    for (const sel of selectors) {
-      const btn = document.querySelector(sel);
-      if (btn && btn.offsetParent !== null) {
-        btn.click();
-        return { success: true, method: 'button', selector: sel };
+  async playVideo() {
+    // Wait for DOM to have elements
+    const maxAttempts = 10;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const video = document.querySelector('video');
+      if (video && !video.paused) return { success: true, method: 'already_playing' };
+
+      if (video && video.paused) {
+        video.muted = true;
+        video.play().catch(() => {});
+      }
+
+      // Selectors ordered by priority
+      const selectors = [
+        '.ytp-large-play-button', '.ytp-play-button',
+        '.bpx-player-ctrl-play', '.bilibili-player-video-btn-start',
+        '.bili-player-video-btn-start', '.video-play-button',
+        'button[aria-label*="播放"]', 'button[aria-label*="Play"]',
+        '.prism-big-play-btn', '.ytp-cued-thumbnail-overlay',
+        // Target site: btn.btn-warm with "立即播放" text
+        'a.btn.btn-warm', '.btn.btn-warm',
+        // Other play buttons
+        '.btn-play', '.play-btn', '.video-play-btn',
+        // Video links
+        'a[href*="/nku/"]', 'a[href*="video"]', 'a[href*="watch"]',
+        // Generic play links (may match playlist, so last)
+        'a[href*="play"]',
+        // Generic selectors
+        '[class*="play"][class*="button"]', '[class*="video"][class*="button"]',
+        'a.btn', 'button.btn'
+      ];
+      
+      for (const sel of selectors) {
+        const btn = document.querySelector(sel);
+        if (!btn) continue;
+        
+        const btnText = (btn.textContent || '').trim();
+        const btnClass = (btn.className || '').trim();
+        
+        // Key fix: always click target play button even if offsetParent is null
+        const isTargetPlayButton = btnText.includes('立即播放') && btnClass.includes('btn-warm');
+        
+        if (btn.offsetParent !== null || isTargetPlayButton) {
+          console.log('[PageClaw] playVideo: clicking', sel, 'text:', btnText, 'offsetParent:', !!btn.offsetParent);
+          
+          // Direct click for target button to avoid index issues
+          btn.click();
+          return { success: true, method: 'button', selector: sel };
+        }
+      }
+
+      // Fallback: text matching
+      const playTexts = ['立即播放', '播放', 'Play', '开始播放', '观看视频', '播放视频', 'play', 'watch'];
+      const candidates = document.querySelectorAll('button, a, [role="button"], [class*="btn"], [class*="button"]');
+      
+      for (const el of candidates) {
+        const text = (el.textContent || '').trim().toLowerCase();
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        
+        for (const target of playTexts) {
+          if (text.includes(target.toLowerCase()) || ariaLabel.includes(target.toLowerCase())) {
+            console.log('[PageClaw] playVideo: text match', target, 'element:', el.tagName, 'text:', text);
+            
+            // Special handling for 立即播放 - click even if offsetParent is null
+            const isTargetText = target === '立即播放' || text.includes('立即播放');
+            if (el.offsetParent !== null || isTargetText) {
+              el.click();
+              return { success: true, method: 'text', text: target };
+            }
+          }
+        }
+      }
+
+      const player = document.querySelector('.bpx-player-video-wrap, .bilibili-player-video-wrap, .player-wrap, .html5-video-player');
+      if (player) {
+        player.click();
+        return { success: true, method: 'player_click' };
+      }
+      if (video) return { success: true, method: 'video.play()' };
+      
+      // Wait before retry
+      if (attempt < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
-  
-    const player = document.querySelector('.bpx-player-video-wrap, .bilibili-player-video-wrap, .player-wrap, .html5-video-player');
-    if (player) { player.click(); return { success: true, method: 'player_click' }; }
-    if (video) return { success: true, method: 'video.play()' };
-    return { success: false, error: 'No video or play button found' };
+    return { success: false, error: 'No video or play button found after retries' };
   },
   
   // ==================== 15. Utilities ====================
@@ -1055,7 +1142,7 @@ var animSystem = {
   
       // Status card (top-right, clean, no animated icon)
       '#pc-status { position: fixed; top: 16px; right: 16px; z-index: 2147483640; pointer-events: none; user-select: none; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; animation: pp-fade-in 0.3s ease-out; }',
-      '#pc-status.hiding { animation: pp-fade-out 0.3s ease-in forwards; }',
+      '#pc-status.hiding { animation: pp-fade-out 1s ease-in forwards; }',
       '#pc-status .pc-card { background: rgba(10,14,28,0.92); backdrop-filter: blur(20px); border: 2px solid rgba(233,69,96,0.5); border-radius: 14px; padding: 16px 20px; min-width: 260px; max-width: 360px; text-align: left; box-shadow: 0 20px 60px rgba(0,0,0,0.6); color: #eee; }',
       '#pc-status .pc-card.thinking { border-color: rgba(99,102,241,0.6); box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(99,102,241,0.2); }',
       '#pc-status .pc-card.executing { border-color: rgba(233,69,96,0.5); }',
@@ -1273,9 +1360,8 @@ var animSystem = {
     }
     var container = this._highlightContainer;
     var indexed = [];
-    var all = document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [onclick], [tabindex], [contenteditable="true"], video, audio, summary, details');
     var self = this;
-    var visible = Array.from(all).filter(function(el) {
+    var visible = getVisibleElements().filter(function(el) {
       if (el.closest('#pc-status,#pc-cursor,#pc-highlight-container,#pc-screen-border')) return false;
       if (el.hasAttribute('data-pageclaw-ignore')) return false;
       var r = el.getBoundingClientRect();
@@ -1543,7 +1629,7 @@ if (card && current > 0) {
       var el = this._animOverlay;
       this._animOverlay = null;
       this._stepsList = null;
-      setTimeout(function() { if (el) el.remove(); }, 300);
+      setTimeout(function() { if (el) el.remove(); }, 1000);
     }
     this._clearHighlights();
     // Also clear DOM engine highlights

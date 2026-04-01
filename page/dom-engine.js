@@ -155,8 +155,13 @@ var domEngine = {
   
     const score = this._scoreInteractive(el);
     const scrollData = this._getScrollData(el);
-    const text = (el.childNodes.length === 1 && el.firstChild.nodeType === 3)
-      ? el.textContent.trim().substring(0, 120) : '';
+    let text = '';
+    if (el.childNodes.length === 1 && el.firstChild.nodeType === 3) {
+      text = el.textContent.trim().substring(0, 120);
+    } else if (el.textContent) {
+      // Extract text content even if there are nested elements
+      text = el.textContent.trim().replace(/\s+/g, ' ').substring(0, 120);
+    }
   
     const result = {
       tag,
@@ -271,25 +276,36 @@ _clearHighlights() {
     this._rectCache = new WeakMap();
     this._styleCache = new WeakMap();
   
-    // Extract DOM tree
-    const tree = this._extractElement(document.body, 0, maxDepth);
-  
-    // Flatten to interactive elements
-    const flat = [];
-    this._flattenTree(tree, flat);
-  
-    // Build output (remove _el references)
-    const elements = flat.map((item, i) => {
-      const coords = this._getCoords(item._el);
+    // Get visible elements using the same function that click() uses
+    const visibleElements = getVisibleElements();
+    
+    // Build snapshot elements with the same order as visibleElements
+    const elements = visibleElements.map((el, i) => {
+      const tag = el.tagName.toLowerCase();
+      const text = (el.textContent || '').trim().substring(0, 120);
+      const attrs = this._getAttrs(el);
+      const coords = this._getCoords(el);
+      const scrollable = !!this._getScrollData(el);
+      
       return {
         index: i,
-        tag: item.tag,
-        text: item.text,
-        attrs: item.attrs,
+        tag,
+        text,
+        attrs,
         coords,
-        scrollable: !!item.scrollable,
+        scrollable,
       };
     });
+    
+    // Prepare flat array for highlighting (keep _el reference)
+    const flat = visibleElements.map((el, i) => ({
+      tag: el.tagName.toLowerCase(),
+      text: (el.textContent || '').trim().substring(0, 120),
+      attrs: this._getAttrs(el),
+      score: this._scoreInteractive(el),
+      scrollable: this._getScrollData(el),
+      _el: el,
+    }));
   
     // Highlight if requested
     if (doHighlight) this._highlightElements(flat);

@@ -136,6 +136,19 @@ async function executeClick(step, tabId, llm) {
   await sleep(200);
   let idx = -1, clickAction = null;
 
+  // Immediate handling for "立即播放" — treat as play_video
+  if (step.target && /立即播放/.test(step.target)) {
+    console.log('[PageClaw] Target contains "立即播放", calling playVideo directly');
+    const playResult = await agentCall(tabId, 'playVideo');
+    if (playResult?.success) {
+      console.log('[PageClaw] playVideo succeeded via direct call');
+      await sleep(1000);
+      return {};
+    } else {
+      console.log('[PageClaw] playVideo failed, proceeding with normal click handling');
+    }
+  }
+
   // Search button
   if (step.target && /search button|\u641c\u7d22\u6309\u94ae|submit/i.test(step.target)) {
     idx = await agentCall(tabId, 'findSearchButton');
@@ -189,10 +202,14 @@ async function executeClick(step, tabId, llm) {
     if (idx >= 0) clickAction = () => agentCall(tabId, 'click', idx);
   }
 
+
+
   // Fallback: LLM element finding
   if (idx === -1) {
     const snapshot = await agentCall(tabId, 'snapshot');
+    console.log('[PageClaw] executeClick calling findElement for:', step.target);
     idx = await llm.findElement(step.target, snapshot);
+    console.log('[PageClaw] findElement returned index:', idx);
     if (idx >= 0) clickAction = () => agentCall(tabId, 'click', idx);
   }
   if (idx === -1) throw new RecoveryError('element-not-found', `Cannot find element: ${step.target}`);
@@ -239,10 +256,41 @@ async function executeAnalyze(step, tabId, llm) {
 }
 
 async function executePlayVideo(step, tabId) {
-  const result = await agentCall(tabId, 'playVideo');
-  if (!result?.success) {
-    const vi = await agentCall(tabId, 'findVideo');
-    if (vi?.playButtons?.length > 0) await agentCall(tabId, 'click', 0);
+  // Wait for DOM to be ready and have some elements
+  await waitForDOMReady(tabId, 10000);
+  
+  // Retry up to 5 times with delay
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const result = await agentCall(tabId, 'playVideo');
+    if (result?.success) {
+      return {};
+    }
+    lastError = result?.error;
+    // If video already playing, success
+    if (result?.method === 'already_playing') {
+      return {};
+    }
+    // Wait before retry
+    await sleep(1000);
   }
-  return {};
+  
+  // If still failing, try to find any play button via findVideo
+  const vi = await agentCall(tabId, 'findVideo');
+  if (vi?.playButtons?.length > 0) {
+    // Try clicking the first play button
+    await agentCall(tabId, 'click', 0);
+    return {};
+  }
+  
+  // If there are video elements but paused, try to play directly
+  if (vi?.videos?.length > 0) {
+    const video = vi.videos[0];
+    if (video.paused) {
+      await agentCall(tabId, 'click', 0); // click the video element itself?
+      return {};
+    }
+  }
+  
+  throw new RecoveryError('element-not-found', `Failed to play video: ${lastError || 'No playable video found'}`);
 }

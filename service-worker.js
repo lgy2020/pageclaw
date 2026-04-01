@@ -309,6 +309,14 @@ class LLMClient {
 
     const prompt = `You are a browser automation assistant. Break the user's instruction into browser action steps.
 
+CRITICAL RULES FOR VIDEO PLAYBACK:
+1. If user instruction contains "播放" AND does NOT contain "记录" or "历史" → MUST include "play_video" step
+2. If user instruction is "点击立即播放" or similar → plan: [{"type":"play_video","description":"Play video"}]
+3. If user instruction is "播放视频" or "播放" → plan: [{"type":"play_video","description":"Play video"}]
+4. If user instruction contains "搜索" and "播放" → plan: navigate → type search → wait → click first video → wait → play_video
+5. "立即播放" means "play now" button, "播放记录" means "play history" - they are DIFFERENT buttons
+6. When clicking play buttons, target should be "立即播放" for play-related instructions
+
 Available step types (MUST use exactly these):
 - navigate: Open URL {"type":"navigate","url":"https://...","description":"..."}
 - type: Type in search box {"type":"type","target":"search box","value":"text","description":"..."}
@@ -386,6 +394,24 @@ Generate steps for the user instruction. Output JSON array only.`;
 
   async findElement(description, snapshot) {
     if (!snapshot?.elements?.length) return -1;
+    
+    // Simple exact match for "立即播放" button
+    if (description.includes('立即播放')) {
+      for (let i = 0; i < snapshot.elements.length; i++) {
+        const e = snapshot.elements[i];
+        const text = (e.text || '').trim();
+        const cls = (e.attrs?.class || '').trim();
+        if (text.includes('立即播放')) {
+          console.log('[PageClaw] findElement exact match for 立即播放 at index', i, 'text:', text, 'class:', cls);
+          return i;
+        }
+        if (cls.includes('btn-warm')) {
+          console.log('[PageClaw] findElement class match btn-warm at index', i, 'text:', text, 'class:', cls);
+          return i;
+        }
+      }
+    }
+    
     const elements = snapshot.elements.slice(0, 50).map(e => ({
       i: e.index, tag: e.tag, text: (e.text || '').substring(0, 40),
       name: e.name || '', ph: e.placeholder || '', aria: e.ariaLabel || '',
@@ -398,6 +424,16 @@ Interactive elements:
 ${JSON.stringify(elements, null, 2)}
 
 Find element matching: "${description}"
+
+CRITICAL RULES for "播放" (play) related elements:
+1. If description contains "点击立即播放" → MUST select element with EXACT "立即播放" text (NOT "播放记录")
+2. If description contains "立即播放" → MUST select element with EXACT "立即播放" text
+3. If description contains "播放" AND does NOT contain "记录" or "历史" → MUST select element with "立即播放" text
+4. If description is "播放" → MUST select element with "立即播放" text (not "播放记录")
+5. If description contains "播放记录" or "历史" → select element with "播放记录" text
+6. "立即播放" means "play now" (main play button), "播放记录" means "play history" (different button)
+7. NEVER select "播放记录" element when description is about playing video
+8. Element with class "btn btn-warm" is very likely the play button
 
 Tips:
 - Search box: input[name='q'], input#search, input[type='search'], textarea

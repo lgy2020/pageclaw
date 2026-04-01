@@ -74,7 +74,18 @@ var elementOps = {
   // ==================== 11. Element Operations ====================
   click(index) {
     const el = pageInfo._getElement(index);
-    if (!el) return { success: false, error: 'Element not found: ' + index };
+    if (!el) {
+      console.log('[PageClaw] Click failed: element not found at index', index);
+      return { success: false, error: 'Element not found: ' + index };
+    }
+    
+    // Log detailed element info before clicking
+    const tagName = el.tagName.toLowerCase();
+    const id = el.id ? '#' + el.id : '';
+    const className = el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').join('.') : '';
+    const text = (el.textContent || '').trim().substring(0, 100);
+    const href = el.href ? el.href.substring(0, 100) : '';
+    console.log('[PageClaw] Clicking element', index, ':', tagName + id + className, 'text="' + text + '"', href ? 'href="' + href + '"' : '', 'outerHTML:', el.outerHTML.substring(0, 200));
   
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     const rect = el.getBoundingClientRect();
@@ -88,6 +99,8 @@ var elementOps = {
     el.focus();
     el.dispatchEvent(new MouseEvent('mouseup', opts));
     el.dispatchEvent(new MouseEvent('click', opts));
+    
+    console.log('[PageClaw] Click completed for element', index);
   
     return { success: true, tag: el.tagName, text: (el.textContent || '').substring(0, 50).trim() };
   },

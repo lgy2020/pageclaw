@@ -251,7 +251,7 @@ var pageInfo = {
     document.querySelectorAll('video').forEach((v, i) => {
       videos.push({ type: 'native', index: i, src: v.src || v.currentSrc, paused: v.paused, duration: v.duration || 0 });
     });
-  
+
     const playButtons = [];
     const selectors = [
       '.ytp-large-play-button', '.ytp-play-button',
@@ -268,38 +268,96 @@ var pageInfo = {
         }
       });
     });
-  
+
     return { videos, playButtons, hasVideo: videos.length > 0 };
   },
   
-  playVideo() {
-    const video = document.querySelector('video');
-    if (video && !video.paused) return { success: true, method: 'already_playing' };
-  
-    if (video && video.paused) {
-      video.muted = true;
-      video.play().catch(() => {});
-    }
-  
-    const selectors = [
-      '.ytp-large-play-button', '.ytp-play-button',
-      '.bpx-player-ctrl-play', '.bilibili-player-video-btn-start',
-      '.bili-player-video-btn-start', '.video-play-button',
-      'button[aria-label*="播放"]', 'button[aria-label*="Play"]',
-      '.prism-big-play-btn', '.ytp-cued-thumbnail-overlay'
-    ];
-    for (const sel of selectors) {
-      const btn = document.querySelector(sel);
-      if (btn && btn.offsetParent !== null) {
-        btn.click();
-        return { success: true, method: 'button', selector: sel };
+  async playVideo() {
+    // Wait for DOM to have elements
+    const maxAttempts = 10;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const video = document.querySelector('video');
+      if (video && !video.paused) return { success: true, method: 'already_playing' };
+
+      if (video && video.paused) {
+        video.muted = true;
+        video.play().catch(() => {});
+      }
+
+      // Selectors ordered by priority
+      const selectors = [
+        '.ytp-large-play-button', '.ytp-play-button',
+        '.bpx-player-ctrl-play', '.bilibili-player-video-btn-start',
+        '.bili-player-video-btn-start', '.video-play-button',
+        'button[aria-label*="播放"]', 'button[aria-label*="Play"]',
+        '.prism-big-play-btn', '.ytp-cued-thumbnail-overlay',
+        // Target site: btn.btn-warm with "立即播放" text
+        'a.btn.btn-warm', '.btn.btn-warm',
+        // Other play buttons
+        '.btn-play', '.play-btn', '.video-play-btn',
+        // Video links
+        'a[href*="/nku/"]', 'a[href*="video"]', 'a[href*="watch"]',
+        // Generic play links (may match playlist, so last)
+        'a[href*="play"]',
+        // Generic selectors
+        '[class*="play"][class*="button"]', '[class*="video"][class*="button"]',
+        'a.btn', 'button.btn'
+      ];
+      
+      for (const sel of selectors) {
+        const btn = document.querySelector(sel);
+        if (!btn) continue;
+        
+        const btnText = (btn.textContent || '').trim();
+        const btnClass = (btn.className || '').trim();
+        
+        // Key fix: always click target play button even if offsetParent is null
+        const isTargetPlayButton = btnText.includes('立即播放') && btnClass.includes('btn-warm');
+        
+        if (btn.offsetParent !== null || isTargetPlayButton) {
+          console.log('[PageClaw] playVideo: clicking', sel, 'text:', btnText, 'offsetParent:', !!btn.offsetParent);
+          
+          // Direct click for target button to avoid index issues
+          btn.click();
+          return { success: true, method: 'button', selector: sel };
+        }
+      }
+
+      // Fallback: text matching
+      const playTexts = ['立即播放', '播放', 'Play', '开始播放', '观看视频', '播放视频', 'play', 'watch'];
+      const candidates = document.querySelectorAll('button, a, [role="button"], [class*="btn"], [class*="button"]');
+      
+      for (const el of candidates) {
+        const text = (el.textContent || '').trim().toLowerCase();
+        const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+        
+        for (const target of playTexts) {
+          if (text.includes(target.toLowerCase()) || ariaLabel.includes(target.toLowerCase())) {
+            console.log('[PageClaw] playVideo: text match', target, 'element:', el.tagName, 'text:', text);
+            
+            // Special handling for 立即播放 - click even if offsetParent is null
+            const isTargetText = target === '立即播放' || text.includes('立即播放');
+            if (el.offsetParent !== null || isTargetText) {
+              el.click();
+              return { success: true, method: 'text', text: target };
+            }
+          }
+        }
+      }
+
+      const player = document.querySelector('.bpx-player-video-wrap, .bilibili-player-video-wrap, .player-wrap, .html5-video-player');
+      if (player) {
+        player.click();
+        return { success: true, method: 'player_click' };
+      }
+      if (video) return { success: true, method: 'video.play()' };
+      
+      // Wait before retry
+      if (attempt < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
-  
-    const player = document.querySelector('.bpx-player-video-wrap, .bilibili-player-video-wrap, .player-wrap, .html5-video-player');
-    if (player) { player.click(); return { success: true, method: 'player_click' }; }
-    if (video) return { success: true, method: 'video.play()' };
-    return { success: false, error: 'No video or play button found' };
+    return { success: false, error: 'No video or play button found after retries' };
   },
   
   // ==================== 15. Utilities ====================

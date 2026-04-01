@@ -34,7 +34,7 @@ var animSystem = {
   
       // Status card (top-right, clean, no animated icon)
       '#pc-status { position: fixed; top: 16px; right: 16px; z-index: 2147483640; pointer-events: none; user-select: none; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; animation: pp-fade-in 0.3s ease-out; }',
-      '#pc-status.hiding { animation: pp-fade-out 0.3s ease-in forwards; }',
+      '#pc-status.hiding { animation: pp-fade-out 1s ease-in forwards; }',
       '#pc-status .pc-card { background: rgba(10,14,28,0.92); backdrop-filter: blur(20px); border: 2px solid rgba(233,69,96,0.5); border-radius: 14px; padding: 16px 20px; min-width: 260px; max-width: 360px; text-align: left; box-shadow: 0 20px 60px rgba(0,0,0,0.6); color: #eee; }',
       '#pc-status .pc-card.thinking { border-color: rgba(99,102,241,0.6); box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(99,102,241,0.2); }',
       '#pc-status .pc-card.executing { border-color: rgba(233,69,96,0.5); }',
@@ -252,9 +252,8 @@ var animSystem = {
     }
     var container = this._highlightContainer;
     var indexed = [];
-    var all = document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [onclick], [tabindex], [contenteditable="true"], video, audio, summary, details');
     var self = this;
-    var visible = Array.from(all).filter(function(el) {
+    var visible = getVisibleElements().filter(function(el) {
       if (el.closest('#pc-status,#pc-cursor,#pc-highlight-container,#pc-screen-border')) return false;
       if (el.hasAttribute('data-pageclaw-ignore')) return false;
       var r = el.getBoundingClientRect();
@@ -522,7 +521,7 @@ if (card && current > 0) {
       var el = this._animOverlay;
       this._animOverlay = null;
       this._stepsList = null;
-      setTimeout(function() { if (el) el.remove(); }, 300);
+      setTimeout(function() { if (el) el.remove(); }, 1000);
     }
     this._clearHighlights();
     // Also clear DOM engine highlights
