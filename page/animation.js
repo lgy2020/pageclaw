@@ -281,6 +281,13 @@ var animSystem = {
     });
     this._indexedEls = indexed;
     console.log('[PageClaw] Highlighted ' + indexed.length + ' elements');
+    indexed.forEach(function(el, i) {
+      var tagName = el.tagName.toLowerCase();
+      var id = el.id ? '#' + el.id : '';
+      var className = el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').join('.') : '';
+      var outerHTML = el.outerHTML.substring(0, 200);
+      console.log('[PageClaw] Element ' + i + ': ' + tagName + id + className + ' => ' + outerHTML);
+    });
   },
   
   _clearHighlights() {
